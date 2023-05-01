@@ -74,3 +74,4 @@ class Trainer:
                 % (self.current_epoch, self.opt.n_epochs, epoch_stats['d_loss'], epoch_stats['g_loss'])
             )
             self.current_epoch += 1
+            torch.save(self.model.state_dict(), self.ckpt_dir / 'latest.pth')
