@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torchvision.utils import save_image
+from src.utils.grad_norm import grad_norm
 
 from src.cgan.discriminator import ResBlocksDiscriminator
 from src.cgan.generator import ResBlocksEncoder, ResBlocksGenerator
@@ -25,9 +26,11 @@ class LungsCGAN(nn.Module):
         
         # Loss functions
         self.adversarial_loss = torch.nn.MSELoss()
+        self.pixel_loss = torch.nn.L1Loss()
 
         self.optimizer_G = torch.optim.Adam(self.gen.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
         self.optimizer_D = torch.optim.Adam(self.disc.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+        self.norms = {'G': None, 'D': None}
 
     def forward(self, batch, training=False):
         imgs, labels = batch['image'], batch['label']
@@ -40,8 +43,6 @@ class LungsCGAN(nn.Module):
         real_imgs = Variable(imgs.type(FloatTensor))
         labels = Variable(labels.type(LongTensor))
         
-
-
         # -----------------
         #  Train Generator
         # -----------------
@@ -49,18 +50,20 @@ class LungsCGAN(nn.Module):
         if training: self.optimizer_G.zero_grad()
 
         # Sample noise and labels as generator input
-        z = Variable(FloatTensor(np.random.normal(0, 1, (batch_size, self.latent_dim, 8, 8))))
-        gen_labels = Variable(LongTensor(np.random.randint(0, self.opt.n_classes, batch_size)))
+        z = self.enc(real_imgs)
+        # z = Variable(FloatTensor(np.random.normal(0, 1, (batch_size, self.latent_dim, 8, 8))))
+        # gen_labels = Variable(LongTensor(np.random.randint(0, self.opt.n_classes, batch_size)))
 
         # Generate a batch of images
-        gen_imgs = self.gen(z, gen_labels)
+        gen_imgs = self.gen(z, labels)
 
         # Loss measures generator's ability to fool the discriminator
-        validity = self.disc(gen_imgs, gen_labels)
+        validity = self.disc(gen_imgs, labels)
         g_loss = self.adversarial_loss(validity, valid)
 
         if training: 
             g_loss.backward()
+            self.norms['G'] = grad_norm(self.gen)
             self.optimizer_G.step()
 
         # ---------------------
@@ -74,7 +77,7 @@ class LungsCGAN(nn.Module):
         d_real_loss = self.adversarial_loss(validity_real, valid)
 
         # Loss for fake images
-        validity_fake = self.disc(gen_imgs.detach(), gen_labels)
+        validity_fake = self.disc(gen_imgs.detach(), labels)
         d_fake_loss = self.adversarial_loss(validity_fake, fake)
 
         # Total discriminator loss
@@ -82,6 +85,7 @@ class LungsCGAN(nn.Module):
 
         if training:
             d_loss.backward()
+            self.norms['D'] = grad_norm(self.disc)
             self.optimizer_D.step()
 
         return {
@@ -92,7 +96,7 @@ class LungsCGAN(nn.Module):
                 'd_fake_loss': d_fake_loss.item(),
             },
             'gen_imgs': gen_imgs,
-            'gen_labels': gen_labels,
+            # 'gen_labels': gen_labels,
         }
 
     def sample_image(self, n_row):

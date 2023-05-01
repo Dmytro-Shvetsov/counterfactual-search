@@ -16,9 +16,9 @@ class DiscriminatorResBlock(nn.Module):
 
     self.right_branch = nn.Sequential(
         nn.ReLU(),
-        snconv2d.SNConv2d(in_channels, in_channels, kernel_size=3, padding=1),
-        nn.ReLU(),
         snconv2d.SNConv2d(in_channels, out_channels, kernel_size=3, padding=1),
+        nn.ReLU(),
+        snconv2d.SNConv2d(out_channels, out_channels, kernel_size=3, padding=1),
         nn.AdaptiveAvgPool2d(out_size),
     )
 

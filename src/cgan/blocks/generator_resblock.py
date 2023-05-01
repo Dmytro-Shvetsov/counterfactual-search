@@ -15,12 +15,12 @@ class GeneratorResBlock(nn.Module):
     )
 
     self.cbn_relu_first = cbn.ConditionalBatchNorm2d(in_channels, num_classes, act=nn.ReLU())
-    self.cbn_relu_second = cbn.ConditionalBatchNorm2d(in_channels, num_classes, act=nn.ReLU())
+    self.cbn_relu_second = cbn.ConditionalBatchNorm2d(out_channels, num_classes, act=nn.ReLU())
     self.upsample_conv = nn.Sequential(
         nn.UpsamplingNearest2d(scale_factor=scale_factor),
-        nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1),
+        nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
     )
-    self.last_conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+    self.last_conv = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
 
   def forward(self, x, labels):
     labels = labels.view(-1)

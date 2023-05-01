@@ -1,6 +1,7 @@
 import argparse
 import logging
 import numpy as np
+import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -19,11 +20,18 @@ parser.add_argument('-c', '--config_path', type=str, help='Configuration file pa
 opt = parser.parse_args()
 
 
+def seed_everything(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
 def main(args):
     with open(args.config_path) as fid:
         opt = yaml.safe_load(fid)
         opt = edict(opt)
-    
+    seed_everything(opt.seed)
+
     transforms = get_transforms(opt.dataset)
     dataloaders = get_dataloaders(transforms, opt.dataset)
 

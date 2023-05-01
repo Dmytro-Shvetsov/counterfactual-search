@@ -1,7 +1,9 @@
-sample_interval: 100
+seed: 777
+sample_interval: 30
 
 n_epochs: 30
 
+model_dir: './training_logs/lungs_cgan'
 dataset:
   root_dir: ./COVID-19_Radiography_Dataset_v2/
   annotations:
