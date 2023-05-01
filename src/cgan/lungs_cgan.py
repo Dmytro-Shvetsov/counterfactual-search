@@ -59,7 +59,9 @@ class LungsCGAN(nn.Module):
 
         # Loss measures generator's ability to fool the discriminator
         validity = self.disc(gen_imgs, labels)
-        g_loss = self.adversarial_loss(validity, valid)
+        g_pixel_loss = self.pixel_loss(gen_imgs, real_imgs)
+        g_adv_loss = self.adversarial_loss(validity, valid) + g_pixel_loss
+        g_loss = g_pixel_loss + g_adv_loss
 
         if training: 
             g_loss.backward()
@@ -91,6 +93,9 @@ class LungsCGAN(nn.Module):
         return {
             'loss': {
                 'g_loss': g_loss.item(),
+                'g_adv': g_adv_loss.item(),
+                'g_loss': g_loss.item(),
+                'pixel_loss': g_pixel_loss,
                 'd_real_loss': d_real_loss.item(),
                 'd_loss': d_loss.item(),
                 'd_fake_loss': d_fake_loss.item(),
