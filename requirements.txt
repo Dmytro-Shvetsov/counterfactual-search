@@ -1,10 +1,10 @@
 matplotlib
 albumentations
 opencv-python
-segmentation_models_pytorch
 pytorch_toolbelt
 jupyter
 pandas
 PyYaml
 easydict
 tensorboard
+tqdm

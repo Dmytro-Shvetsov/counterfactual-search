@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, List
 import torch
 import datetime
 import os
@@ -40,12 +40,12 @@ def setup_logger(name, log_file=None):
     return logging.getLogger(__name__)
 
 
-def save_model(config:dict, model:torch.nn.Module, optimizer:torch.nn.Module, 
+def save_model(config:dict, model:torch.nn.Module, optimizers:List[torch.nn.Module], 
                current_step:int, epoch:int, checkpoint_dir:Path, **kwargs) -> Path:
     state = {
         'config': config,
         'model': model.state_dict(),
-        'optimizer': optimizer.state_dict(),
+        'optimizers': [opt.state_dict() for opt in optimizers],
         'step': current_step,
         'epoch': epoch,
         'date': datetime.date.today().strftime('%B %d, %Y'),

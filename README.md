@@ -1,7 +1,7 @@
 ## Setting up the project
 ```
-pip install git+https://github.com/ufoym/imbalanced-dataset-sampler.git
 pip install torch==2.0.0+cu117 torchvision --extra-index-url https://download.pytorch.org/whl/cu117
+pip install git+https://github.com/ufoym/imbalanced-dataset-sampler.git
 pip install -e .
 ```
 

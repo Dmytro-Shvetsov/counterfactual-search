@@ -27,10 +27,12 @@ class LungsDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         label, img_path, mask_path = self.labels[index], self.image_paths[index], self.mask_paths[index]
         img = np.array(Image.open(img_path))
+        mask = np.array(Image.open(mask_path))
         if len(img.shape) == 3:
             img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        mask = np.array(Image.open(mask_path))
-        
+        if len(mask.shape) == 3:
+            mask = cv2.cvtColor(mask, cv2.COLOR_RGB2GRAY)
+
         sample = {
             'image': img,
             'mask': mask,
@@ -39,7 +41,7 @@ class LungsDataset(torch.utils.data.Dataset):
             sample = self.transforms(**sample)
         sample['label'] = label
         sample['image'] = sample['image'][np.newaxis]
-        sample['mask'] = (sample['mask'] / 255)[np.newaxis]
+        sample['mask'] = (sample['mask'].clip(0, 1))[np.newaxis]
         return sample
 
     def get_labels(self):
@@ -86,9 +88,9 @@ def get_transforms(opt):
     return data_transforms
 
 
-def get_dataloaders(data_transforms, params):
+def get_dataloaders(data_transforms, params, sampler_labels=None):
     train_data = LungsDataset(Path(params.root_dir, params.annotations.train), data_transforms['train'])
-    train_sampler = ImbalancedDatasetSampler(train_data) if params.get('use_sampler', True) else None
+    train_sampler = ImbalancedDatasetSampler(train_data, labels=sampler_labels) if params.get('use_sampler', True) else None
 
     test_data = LungsDataset(Path(params.root_dir, params.annotations.val), data_transforms['val'])
     train_loader = torch.utils.data.DataLoader(train_data, sampler=train_sampler, shuffle=train_sampler is None, 

@@ -53,6 +53,7 @@ class ResBlocksDiscriminator(nn.Module):
 
     def forward(self, imgs, labels):
         outs = imgs
+        labels = labels.view(-1)
         for b in self.blocks:
             outs = b(outs)
         gsp = outs.view(*outs.shape[:2]) # (B, 1024, 1, 1)
@@ -60,7 +61,7 @@ class ResBlocksDiscriminator(nn.Module):
         
         sndense = self.sn_dense(gsp) # (B, 1)
         
-        # embed the labels (B, ) -> (B, 1024)
+        # embed the labels (B, 1) -> (B, 1024)
         embed = self.embd(labels)
         # print('EMBED', embed.shape)
         inner_prod = (gsp * embed).sum(dim=1, keepdims=True) # (B, 1)

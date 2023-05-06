@@ -49,12 +49,7 @@ class LungsCGAN(nn.Module):
 
         if training: self.optimizer_G.zero_grad()
 
-        # Sample noise and labels as generator input
         z = self.enc(real_imgs)
-        # z = Variable(FloatTensor(np.random.normal(0, 1, (batch_size, self.latent_dim, 8, 8))))
-        # gen_labels = Variable(LongTensor(np.random.randint(0, self.opt.n_classes, batch_size)))
-
-        # Generate a batch of images
         gen_imgs = self.gen(z, labels)
 
         # Loss measures generator's ability to fool the discriminator
@@ -63,7 +58,7 @@ class LungsCGAN(nn.Module):
         g_adv_loss = self.adversarial_loss(validity, valid) + g_pixel_loss
         g_loss = g_pixel_loss + g_adv_loss
 
-        if training: 
+        if training:
             g_loss.backward()
             if compute_norms: self.norms['G'] = grad_norm(self.gen)
             self.optimizer_G.step()
@@ -103,13 +98,3 @@ class LungsCGAN(nn.Module):
             'gen_imgs': gen_imgs,
             # 'gen_labels': gen_labels,
         }
-
-    def sample_image(self, n_row):
-        """Saves a grid of generated digits ranging from 0 to n_classes"""
-        # Sample noise
-        z = Variable(FloatTensor(np.random.normal(0, 1, (n_row ** 2, self.latent_dim))))
-        # Get labels ranging from 0 to n_classes for n rows
-        labels = np.array([num for _ in range(n_row) for num in range(n_row)])
-        labels = Variable(LongTensor(labels))
-        gen_imgs = self.gen(z, labels)
-        return gen_imgs

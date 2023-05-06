@@ -11,7 +11,7 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 from src.utils.avg_meter import AvgMeter
-from src.utils.generic_utils import get_experiment_folder_path
+from src.utils.generic_utils import get_experiment_folder_path, save_model
 
 from .logger import Logger
 
@@ -20,6 +20,7 @@ class Trainer:
     def __init__(self, opt:edict, model:nn.Module) -> None:
         self.opt = opt
         self.model = model
+        self.batches_done = 0
         self.current_epoch = 0
         self.logging_dir = Path(get_experiment_folder_path(opt.logging_dir, opt.model.kind))
         self.logger = Logger(self.logging_dir)
@@ -35,11 +36,11 @@ class Trainer:
         stats = AvgMeter()
         with tqdm(enumerate(loader), desc=f'Training epoch: {self.current_epoch}', leave=False, total=len(loader)) as prog:
             for i, batch in prog:
+                self.batches_done = self.current_epoch * len(loader) + i
                 sample_step = self.batches_done % self.opt.sample_interval == 0
                 outs = self.model(batch, training=True, compute_norms=sample_step)
                 stats.update(outs['loss'])
 
-                self.batches_done = self.current_epoch * len(loader) + i
                 if sample_step:
                     save_image(outs['gen_imgs'][:16].data, self.vis_dir / ("%d_train_%d.png" % (self.current_epoch, i)), nrow=4, normalize=True)
                     postf = '[Batch %d/%d] [D loss: %f] [G loss: %f]' % (
@@ -70,8 +71,7 @@ class Trainer:
 
     def fit(self, data_loaders):
         train_loader, val_loader = data_loaders
-
-        for i in range(self.opt.n_epochs):
+        for i in range(self.current_epoch, self.opt.n_epochs):
             epoch_stats = self.training_epoch(train_loader)
             self.logger.info("[Finished training epoch %d/%d] [Epoch D loss: %f] [Epoch G loss: %f]"
                 % (self.current_epoch, self.opt.n_epochs, epoch_stats['d_loss'], epoch_stats['g_loss'])
@@ -80,5 +80,11 @@ class Trainer:
             self.logger.info("[Finished validation epoch %d/%d] [Epoch D loss: %f] [Epoch G loss: %f]"
                 % (self.current_epoch, self.opt.n_epochs, epoch_stats['d_loss'], epoch_stats['g_loss'])
             )
+            if self.current_epoch % self.opt.checkpoint_freq == 0:
+                ckpt_path = save_model(self.opt, self.model, (self.model.optimizer_G, self.model.optimizer_D), 
+                                    self.batches_done, self.current_epoch, self.ckpt_dir)
+                self.logger.info(f'Saved checkpoint parameters at epoch {self.current_epoch}: {ckpt_path}')
             self.current_epoch += 1
-            torch.save(self.model.state_dict(), self.ckpt_dir / 'latest.pth')
+        ckpt_path = save_model(self.opt, self.model, (self.model.optimizer_G, self.model.optimizer_D), 
+                               self.batches_done, self.current_epoch, self.ckpt_dir)
+        self.logger.info(f'Saved checkpoint parameters at epoch {self.current_epoch}: {ckpt_path}')

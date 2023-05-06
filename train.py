@@ -11,8 +11,8 @@ from easydict import EasyDict as edict
 logging.basicConfig(level=logging.INFO)
 
 from src.dataset import get_dataloaders, get_transforms
-from src.cgan.vanila_cgan import VanilaCGAN
-from src.cgan.lungs_cgan import LungsCGAN
+from src.cgan import build_gan
+from src.classifier import compute_sampler_condition_labels, predict_probs
 from src.trainer import Trainer
 
 parser = argparse.ArgumentParser()
@@ -32,12 +32,23 @@ def main(args):
         opt = edict(opt)
     seed_everything(opt.seed)
 
-    transforms = get_transforms(opt.dataset)
-    dataloaders = get_dataloaders(transforms, opt.dataset)
-
     # model = VanilaCGAN(opt.dataset.img_size, opt.model)
-    model = LungsCGAN(opt.dataset.img_size, opt.model)
-    
+    model_kind = opt.model.get('kind')
+    model = build_gan(opt.model, img_size=opt.dataset.img_size)
+
+    transforms = get_transforms(opt.dataset)
+    if model_kind.startswith('counterfactual'):
+        # compute sampler labels to create batches with uniformly distributed labels 
+        params = edict(opt.dataset, use_sampler=False, shuffle_test=False)
+        # GAN's train loader is expected to be classifier's validation data
+        train_loader, _ = get_dataloaders({'train': transforms['val'], 'val': transforms['train']}, params)
+        posterior_probs, _ = predict_probs(train_loader, model.classifier_f)
+        sampler_labels = compute_sampler_condition_labels(posterior_probs, model.explain_class_idx, model.num_bins)
+    else:
+        sampler_labels = None
+
+    dataloaders = get_dataloaders(transforms, opt.dataset, sampler_labels=sampler_labels)
+
     if torch.cuda.is_available():
         model.cuda()
     logging.info(f'Using model: {model.__class__.__name__}')
