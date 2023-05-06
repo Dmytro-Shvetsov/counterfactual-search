@@ -3,7 +3,8 @@ sample_interval: 30
 
 n_epochs: 30
 
-model_dir: './training_logs/lungs_cgan'
+logging_dir: './training_logs'
+
 dataset:
   root_dir: ./COVID-19_Radiography_Dataset_v2/
   annotations:
@@ -19,6 +20,7 @@ dataset:
   augs: [] # only resize and norm
 
 model:
+  kind: lungs_cgan
   n_classes: 4
   in_channels: 1
   lr: 0.0002

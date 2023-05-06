@@ -32,7 +32,7 @@ class LungsCGAN(nn.Module):
         self.optimizer_D = torch.optim.Adam(self.disc.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
         self.norms = {'G': None, 'D': None}
 
-    def forward(self, batch, training=False):
+    def forward(self, batch, training=False, compute_norms=False):
         imgs, labels = batch['image'], batch['label']
         batch_size = imgs.shape[0]
         # Adversarial ground truths
@@ -65,7 +65,7 @@ class LungsCGAN(nn.Module):
 
         if training: 
             g_loss.backward()
-            self.norms['G'] = grad_norm(self.gen)
+            if compute_norms: self.norms['G'] = grad_norm(self.gen)
             self.optimizer_G.step()
 
         # ---------------------
@@ -87,7 +87,7 @@ class LungsCGAN(nn.Module):
 
         if training:
             d_loss.backward()
-            self.norms['D'] = grad_norm(self.disc)
+            if compute_norms: self.norms['D'] = grad_norm(self.disc)
             self.optimizer_D.step()
 
         return {
