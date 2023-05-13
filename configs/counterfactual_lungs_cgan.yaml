@@ -10,8 +10,8 @@ dataset:
   root_dir: ./COVID-19_Radiography_Dataset_v2/
   annotations:
     # specify training set as the classifier's validation one and vice versa
-    train: val.csv
-    val: train.csv
+    train: classifier_validation.csv
+    val: explanator_val.csv
   batch_size: 16
   img_size: [256, 256] # hxw
   use_sampler: True
@@ -29,7 +29,7 @@ model:
   
   # classifier parameters
   n_classes: 4 # number of classes in the classifier
-  classifier_ckpt: ./resnet18_multiclass_pretrain.pth
+  classifier_ckpt: ./saved_models/resnet18_multiclass_pretrain.pth
   
   # optimizers' parameters
   lr: 0.0002

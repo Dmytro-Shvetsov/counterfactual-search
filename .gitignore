@@ -191,3 +191,5 @@ pyrightconfig.json
 COVID-19_Radiography_Dataset*
 images/
 training_logs/
+saved_models/
+*.7z

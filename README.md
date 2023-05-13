@@ -14,3 +14,8 @@ https://www.kaggle.com/datasets/tolgadincer/labeled-chest-xray-images
 
 
 https://www.kaggle.com/code/arunrk7/covid-19-detection-pytorch-tutorial
+
+
+```
+python eval_counterfactual.py -c configs/counterfactual_lungs_cgan.yaml -cp training_logs/counterfactual_lungs_cgan-May-06-2023_07+11PM-d6a65d1 -t 0.5
+```

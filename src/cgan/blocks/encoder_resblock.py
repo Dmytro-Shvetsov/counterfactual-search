@@ -11,7 +11,7 @@ class EncoderResBlock(nn.Module):
 
     self.left_branch = nn.Sequential(
         nn.AdaptiveAvgPool2d(out_size),
-        snconv2d.SNConv2d(in_channels, out_channels, kernel_size=1, padding=0),
+        snconv2d.SNConv2d(in_channels, out_channels, kernel_size=1, padding=0, bias=False),
     )
 
     self.right_branch = nn.Sequential(
@@ -21,7 +21,7 @@ class EncoderResBlock(nn.Module):
         nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
         nn.BatchNorm2d(out_channels),
         nn.ReLU(),
-        nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+        nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
     )
 
   def forward(self, x):

@@ -56,8 +56,10 @@ class CounterfactualLungsCGAN(nn.Module):
 
         # Loss functions
         self.adversarial_loss = torch.nn.MSELoss()
+        self.KL_loss = torch.nn.KLDivLoss()
         # self.adversarial_loss = torch.nn.BCEWithLogitsLoss()
         self.lambda_adv = 1.0
+        self.lambda_kl = 1.0
         self.lambda_rec = 1.0
 
         self.optimizer_G = torch.optim.Adam(
@@ -75,6 +77,17 @@ class CounterfactualLungsCGAN(nn.Module):
             mod.requires_grad_(False)
         self.classifier_f.eval()
         return ret
+
+    @torch.no_grad()
+    def posterior_prob(self, x):
+        assert self.classifier_f.training is False, 'Classifier is not set to evaluation mode'
+        # f(x)
+        f_x = self.classifier_f(x).softmax(dim=1)[:, [self.explain_class_idx]]
+        f_x_discrete = posterior2bin(f_x, self.num_bins)
+        # the posterior probabilities `c` we would like to obtain after the explanation image is fed into the classifier
+        f_x_desired = 1.0 - f_x
+        f_x_desired_discrete = posterior2bin(f_x_desired, self.num_bins)
+        return f_x, f_x_discrete, f_x_desired, f_x_desired_discrete
 
     def explanation_function(self, x, f_x_discrete, z=None):
         """Computes I_f(x, c)"""
@@ -107,7 +120,6 @@ class CounterfactualLungsCGAN(nn.Module):
         return forward_term + cyclic_term
 
     def forward(self, batch, training=False, compute_norms=False):
-        # NOTE: images are expected to be sampled (TODO)
         imgs, labels, masks = batch['image'], batch['label'], batch['mask']
         batch_size = imgs.shape[0]
 
@@ -115,19 +127,12 @@ class CounterfactualLungsCGAN(nn.Module):
         real_imgs = Variable(imgs.type(FloatTensor))
         masks = Variable(masks.type(FloatTensor))
         labels = Variable(labels.type(LongTensor))
-
-        with torch.no_grad():
-            assert self.classifier_f.training is False, 'Classifier is not set to evaluation mode'
-            # f(x)
-            f_x = self.classifier_f(real_imgs).softmax(dim=1)[:, [self.explain_class_idx]]
-            f_x_discrete = posterior2bin(f_x, self.num_bins)
-            # the posterior probabilities `c` we would like to obtain after the explanation image is fed into the classifier
-            f_x_desired = 1.0 - f_x
-            f_x_desired_discrete = posterior2bin(f_x_desired, self.num_bins)
-
         # Adversarial ground truths
         valid = Variable(FloatTensor(batch_size, 1).fill_(1.0), requires_grad=False)
         fake = Variable(FloatTensor(batch_size, 1).fill_(0.0), requires_grad=False)
+
+        # Classifier predictions and desired outputs for the explanation function
+        real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = self.posterior_prob(real_imgs)
 
         # -----------------
         #  Train Generator
@@ -137,16 +142,22 @@ class CounterfactualLungsCGAN(nn.Module):
         # E(x) 
         z = self.enc(real_imgs)
         # G(z, c) 
-        gen_imgs = self.gen(z, f_x_desired_discrete)
+        gen_imgs = self.gen(z, real_f_x_desired_discrete)
 
         # data consistency loss for generator
-        validity = self.disc(gen_imgs, f_x_desired_discrete)
+        validity = self.disc(gen_imgs, real_f_x_desired_discrete)
         g_adv_loss = self.adversarial_loss(validity, valid)
+        
+        # classifier consistency loss for generator
+        # f(I_f(x, c)) ≈ c
+        gen_f_x, _, _, _ = self.posterior_prob(gen_imgs)
+        g_kl = self.KL_loss(gen_f_x, real_f_x_desired)
+
         # reconstruction loss for generator
-        g_rec_loss = self.reconstruction_loss(real_imgs, masks, f_x_discrete, f_x_desired_discrete, z=z)
+        g_rec_loss = self.reconstruction_loss(real_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
 
         # total generator loss
-        g_loss = self.lambda_adv * g_adv_loss + self.lambda_rec * g_rec_loss
+        g_loss = self.lambda_adv * g_adv_loss + self.lambda_kl * g_kl + self.lambda_rec * g_rec_loss
 
         if training: 
             g_loss.backward()
@@ -161,11 +172,11 @@ class CounterfactualLungsCGAN(nn.Module):
         if training: self.optimizer_D.zero_grad()
 
         # data consistency loss for discriminator (real images)
-        validity_real = self.disc(real_imgs, f_x_desired_discrete)
+        validity_real = self.disc(real_imgs, real_f_x_desired_discrete)
         d_real_loss = self.adversarial_loss(validity_real, valid)
 
         # data consistency loss for discriminator (fake images)
-        validity_fake = self.disc(gen_imgs.detach(), f_x_desired_discrete)
+        validity_fake = self.disc(gen_imgs.detach(), real_f_x_desired_discrete)
         d_fake_loss = self.adversarial_loss(validity_fake, fake)
 
         # total discriminator loss
@@ -178,23 +189,15 @@ class CounterfactualLungsCGAN(nn.Module):
 
         return {
             'loss': {
-                'g_loss': g_loss.item(),
+                # generator
                 'g_adv': g_adv_loss.item(),
+                'g_kl': g_kl.item(),
+                'g_rec_loss': g_rec_loss.item(),
                 'g_loss': g_loss.item(),
-                'g_rec_loss': g_rec_loss,
+                # discriminator
                 'd_real_loss': d_real_loss.item(),
-                'd_loss': d_loss.item(),
                 'd_fake_loss': d_fake_loss.item(),
+                'd_loss': d_loss.item(),
             },
             'gen_imgs': gen_imgs,
         }
-
-    def sample_image(self, n_row):
-        """Saves a grid of generated digits ranging from 0 to n_classes"""
-        # Sample noise
-        z = Variable(FloatTensor(np.random.normal(0, 1, (n_row ** 2, self.latent_dim))))
-        # Get labels ranging from 0 to n_classes for n rows
-        labels = np.array([num for _ in range(n_row) for num in range(n_row)])
-        labels = Variable(LongTensor(labels))
-        gen_imgs = self.gen(z, labels)
-        return gen_imgs
