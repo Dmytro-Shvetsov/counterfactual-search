@@ -58,9 +58,9 @@ class CounterfactualLungsCGAN(nn.Module):
         self.adversarial_loss = torch.nn.MSELoss()
         self.KL_loss = torch.nn.KLDivLoss()
         # self.adversarial_loss = torch.nn.BCEWithLogitsLoss()
-        self.lambda_adv = 1.0
-        self.lambda_kl = 1.0
-        self.lambda_rec = 1.0
+        self.lambda_adv = opt.get('lambda_adv', 1.0)
+        self.lambda_kl = opt.get('lambda_kl', 1.0)
+        self.lambda_rec = opt.get('lambda_rec', 1.0)
 
         self.optimizer_G = torch.optim.Adam(
             itertools.chain.from_iterable((self.enc.parameters(), self.gen.parameters())), 
@@ -146,24 +146,27 @@ class CounterfactualLungsCGAN(nn.Module):
 
         # data consistency loss for generator
         validity = self.disc(gen_imgs, real_f_x_desired_discrete)
-        g_adv_loss = self.adversarial_loss(validity, valid)
+        g_adv_loss = self.lambda_adv * self.adversarial_loss(validity, valid)
         
         # classifier consistency loss for generator
         # f(I_f(x, c)) ≈ c
         gen_f_x, _, _, _ = self.posterior_prob(gen_imgs)
-        g_kl = self.KL_loss(gen_f_x, real_f_x_desired)
+        g_kl = self.lambda_kl * self.KL_loss(gen_f_x.log(), real_f_x_desired) # y_pred is log_softmax and y_target is just softmax
 
         # reconstruction loss for generator
-        g_rec_loss = self.reconstruction_loss(real_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
+        g_rec_loss = self.lambda_rec * self.reconstruction_loss(real_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
 
         # total generator loss
-        g_loss = self.lambda_adv * g_adv_loss + self.lambda_kl * g_kl + self.lambda_rec * g_rec_loss
+        g_loss = g_adv_loss + g_kl + g_rec_loss
 
         if training: 
             g_loss.backward()
             if compute_norms:
                 self.norms['E'] = grad_norm(self.enc) 
                 self.norms['G'] = grad_norm(self.gen)
+            # print(next(self.enc.parameters()).device)
+            # print(next(self.gen.parameters()).device)
+            # exit()
             self.optimizer_G.step()
 
         # ---------------------

@@ -52,7 +52,8 @@ def main(args):
     dataloaders = get_dataloaders(transforms, opt.dataset, sampler_labels=sampler_labels)
 
     trainer = Trainer(opt, model, args.continue_path)
-    shutil.copy2(args.config_path, trainer.logging_dir / 'hparams.yaml')
+    if args.continue_path is None:
+        shutil.copy2(args.config_path, trainer.logging_dir / 'hparams.yaml')
     logging.info('Started training.')
     trainer.fit(dataloaders)
     logging.info('Finished training.')

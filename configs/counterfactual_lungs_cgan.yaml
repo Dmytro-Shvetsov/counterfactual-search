@@ -5,7 +5,7 @@ n_epochs: 500
 
 logging_dir: './training_logs'
 checkpoint_freq: 5
-
+rsync
 dataset:
   root_dir: ./COVID-19_Radiography_Dataset_v2/
   annotations:
@@ -15,13 +15,16 @@ dataset:
   batch_size: 16
   img_size: [256, 256] # hxw
   use_sampler: True
-  num_workers: 14
+  num_workers: 28
   imagenet_norm: False # mean=[0.5], std=[0.5]
   augs: [] # only resize and norm
 
 model:
   kind: counterfactual_lungs_cgan
   in_channels: 1
+  lambda_adv: 1.0
+  lambda_kl: 0.05
+  lambda_rec: 6
 
   # counterfactual parameters
   num_bins: 2 # number of discrete bins into which posterior probabilities are sorted

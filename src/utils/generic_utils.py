@@ -37,7 +37,7 @@ def setup_logger(name, log_file=None):
         datefmt=r'%Y-%m-%d %H:%M:%S',
         handlers=[logging.StreamHandler()] + ([logging.FileHandler(log_file, 'a')] if log_file is not None else [])
     )
-    return logging.getLogger(__name__)
+    return logging.getLogger(name)
 
 
 def save_model(config:dict, model:torch.nn.Module, optimizers:List[torch.nn.Module], 

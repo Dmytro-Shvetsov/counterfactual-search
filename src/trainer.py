@@ -22,27 +22,28 @@ class Trainer:
     def __init__(self, opt:edict, model:nn.Module, continue_path:Optional[str]=None) -> None:
         self.opt = opt
         self.model = model
+        if torch.cuda.is_available():
+            self.model.cuda()
+        self.compute_norms = self.opt.get('compute_norms', False)
         self.batches_done = 0
         self.current_epoch = 0
+
         self.logging_dir = Path(continue_path or get_experiment_folder_path(opt.logging_dir, opt.model.kind))
-        self.logger = Logger(self.logging_dir)
         self.vis_dir = self.logging_dir / 'visualizations'
         self.ckpt_dir = self.logging_dir / 'checkpoints'
-        if not self.logging_dir.exists():
+        self.logger = Logger(self.logging_dir)
+        if continue_path is not None:
+            assert self.logging_dir.exists(), f'Unable to find model directory {continue_path}'
+            self._restore_state()
+        else: 
             self.vis_dir.mkdir(exist_ok=True)
             self.ckpt_dir.mkdir(exist_ok=True)
             self.logger.reset()
-        else:
-            self._restore_state()
-
-        if torch.cuda.is_available():
-            self.model.cuda()
-
         logging.info(f'Using model: {self.model.__class__.__name__}')
 
     def _restore_state(self):
         latest_ckpt = max(self.ckpt_dir.glob('*.pth'), key=lambda p: len(p.name))
-        state = torch.load(latest_ckpt, map_location='cpu')
+        state = torch.load(latest_ckpt)
         self.batches_done = state['step']
         self.current_epoch = state['epoch']
         self.model.load_state_dict(state['model'], strict=True)
@@ -58,7 +59,7 @@ class Trainer:
             for i, batch in prog:
                 self.batches_done = self.current_epoch * len(loader) + i
                 sample_step = self.batches_done % self.opt.sample_interval == 0
-                outs = self.model(batch, training=True, compute_norms=sample_step)
+                outs = self.model(batch, training=True, compute_norms=sample_step and self.compute_norms)
                 stats.update(outs['loss'])
 
                 if sample_step:
@@ -67,8 +68,9 @@ class Trainer:
                         i, len(loader), outs['loss']['d_loss'], outs['loss']['g_loss']
                     )
                     prog.set_postfix_str(postf, refresh=True)
-                    for model_name, norms in self.model.norms.items():
-                        self.logger.log(norms, self.batches_done, f'{model_name}_gradients_norm')
+                    if self.compute_norms:
+                        for model_name, norms in self.model.norms.items():
+                            self.logger.log(norms, self.batches_done, f'{model_name}_gradients_norm')
         epoch_stats = stats.average()
         self.logger.log(epoch_stats, self.current_epoch, 'train')
         return epoch_stats
