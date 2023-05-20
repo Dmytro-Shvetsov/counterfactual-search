@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import shutil
 import numpy as np
 import random
@@ -17,7 +18,7 @@ from src.classifier import compute_sampler_condition_labels, predict_probs
 from src.trainer import Trainer
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-c', '--config_path', type=str, help='Configuration file path')
+parser.add_argument('-c', '--config_path', type=str, required=False, help='Configuration file path to start training from scratch')
 parser.add_argument('-cp', '--continue_path', type=str, required=False, help='Path to the existing training run to continue interrupted training')
 opt = parser.parse_args()
 
@@ -30,7 +31,7 @@ def seed_everything(seed):
 
 
 def main(args):
-    with open(args.config_path) as fid:
+    with open(args.config_path or os.path.join(args.continue_path, 'hparams.yaml')) as fid:
         opt = yaml.safe_load(fid)
         opt = edict(opt)
     seed_everything(opt.seed)

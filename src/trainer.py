@@ -42,7 +42,7 @@ class Trainer:
         logging.info(f'Using model: {self.model.__class__.__name__}')
 
     def _restore_state(self):
-        latest_ckpt = max(self.ckpt_dir.glob('*.pth'), key=lambda p: len(p.name))
+        latest_ckpt = max(self.ckpt_dir.glob('*.pth'), key=lambda p: int(p.name.replace('.pth', '').split('_')[1]))
         state = torch.load(latest_ckpt)
         self.batches_done = state['step']
         self.current_epoch = state['epoch']
@@ -59,7 +59,7 @@ class Trainer:
             for i, batch in prog:
                 self.batches_done = self.current_epoch * len(loader) + i
                 sample_step = self.batches_done % self.opt.sample_interval == 0
-                outs = self.model(batch, training=True, compute_norms=sample_step and self.compute_norms)
+                outs = self.model(batch, training=True, compute_norms=sample_step and self.compute_norms, global_step=self.batches_done)
                 stats.update(outs['loss'])
 
                 if sample_step:

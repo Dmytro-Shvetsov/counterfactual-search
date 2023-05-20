@@ -5,7 +5,7 @@ n_epochs: 500
 
 logging_dir: './training_logs'
 checkpoint_freq: 5
-rsync
+
 dataset:
   root_dir: ./COVID-19_Radiography_Dataset_v2/
   annotations:
@@ -22,6 +22,7 @@ dataset:
 model:
   kind: counterfactual_lungs_cgan
   in_channels: 1
+  gen_update_freq: 5
   lambda_adv: 1.0
   lambda_kl: 0.05
   lambda_rec: 6

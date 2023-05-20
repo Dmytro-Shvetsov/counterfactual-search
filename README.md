@@ -17,5 +17,9 @@ https://www.kaggle.com/code/arunrk7/covid-19-detection-pytorch-tutorial
 
 
 ```
-python eval_counterfactual.py -c configs/counterfactual_lungs_cgan.yaml -cp training_logs/counterfactual_lungs_cgan-May-06-2023_07+11PM-d6a65d1 -t 0.5
+python eval_counterfactual.py -c training_logs/counterfactual_lungs_cgan-May-14-2023_09+38PM-f54b319/hparams.yaml -cp training_logs/counterfactual_lungs_cgan-May-14-2023_09+38PM-f54b319 -t 0.5
+```
+
+```
+rsync /gpfs/space/home/dmytrosh/counterfactual-search/COVID-19_Radiography_Dataset_v2/ /tmp/
 ```

@@ -61,6 +61,8 @@ class CounterfactualLungsCGAN(nn.Module):
         self.lambda_adv = opt.get('lambda_adv', 1.0)
         self.lambda_kl = opt.get('lambda_kl', 1.0)
         self.lambda_rec = opt.get('lambda_rec', 1.0)
+        # by default update both generator and discriminator on each training step
+        self.gen_update_freq = opt.get('gen_update_freq', 1)
 
         self.optimizer_G = torch.optim.Adam(
             itertools.chain.from_iterable((self.enc.parameters(), self.gen.parameters())), 
@@ -119,7 +121,7 @@ class CounterfactualLungsCGAN(nn.Module):
         cyclic_term = CARL(real_imgs, ifxc_fx, masks)
         return forward_term + cyclic_term
 
-    def forward(self, batch, training=False, compute_norms=False):
+    def forward(self, batch, training=False, compute_norms=False, global_step=None):
         imgs, labels, masks = batch['image'], batch['label'], batch['mask']
         batch_size = imgs.shape[0]
 
@@ -144,6 +146,7 @@ class CounterfactualLungsCGAN(nn.Module):
         # G(z, c) 
         gen_imgs = self.gen(z, real_f_x_desired_discrete)
 
+        update_generator = global_step is not None and global_step % self.gen_update_freq == 0
         # data consistency loss for generator
         validity = self.disc(gen_imgs, real_f_x_desired_discrete)
         g_adv_loss = self.lambda_adv * self.adversarial_loss(validity, valid)
@@ -159,14 +162,11 @@ class CounterfactualLungsCGAN(nn.Module):
         # total generator loss
         g_loss = g_adv_loss + g_kl + g_rec_loss
 
-        if training: 
+        if training and update_generator: 
             g_loss.backward()
             if compute_norms:
                 self.norms['E'] = grad_norm(self.enc) 
                 self.norms['G'] = grad_norm(self.gen)
-            # print(next(self.enc.parameters()).device)
-            # print(next(self.gen.parameters()).device)
-            # exit()
             self.optimizer_G.step()
 
         # ---------------------
@@ -190,7 +190,7 @@ class CounterfactualLungsCGAN(nn.Module):
             if compute_norms: self.norms['D'] = grad_norm(self.disc)
             self.optimizer_D.step()
 
-        return {
+        outs = {
             'loss': {
                 # generator
                 'g_adv': g_adv_loss.item(),
@@ -204,3 +204,4 @@ class CounterfactualLungsCGAN(nn.Module):
             },
             'gen_imgs': gen_imgs,
         }
+        return outs

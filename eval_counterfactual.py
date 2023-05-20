@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import numpy as np
 import random
 import torch
@@ -16,8 +17,7 @@ from src.classifier import compute_sampler_condition_labels, predict_probs
 from src.trainer import Trainer
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-c', '--config_path', type=str, help='Configuration file path')
-parser.add_argument('-cp', '--continue_path', type=str, required=False, help='Path to the existing training run to continue interrupted training')
+parser.add_argument('-cp', '--continue_path', type=str, required=True, help='Path to the existing training run to continue interrupted training')
 parser.add_argument('-t', '--tau', type=float, required=False, default=0.8, help='Theshold for the counterfactual score metric')
 opt = parser.parse_args()
 
@@ -30,7 +30,7 @@ def seed_everything(seed):
 
 
 def main(args):
-    with open(args.config_path) as fid:
+    with open(os.path.join(args.continue_path, 'hparams.yaml')) as fid:
         opt = yaml.safe_load(fid)
         opt = edict(opt)
     seed_everything(opt.seed)
@@ -38,16 +38,6 @@ def main(args):
     model:CounterfactualLungsCGAN = build_gan(opt.model, img_size=opt.dataset.img_size)
 
     transforms = get_transforms(opt.dataset)
-    # if model_kind.startswith('counterfactual'):
-    #     # compute sampler labels to create batches with uniformly distributed labels 
-    #     params = edict(opt.dataset, use_sampler=False, shuffle_test=False)
-    #     # GAN's train loader is expected to be classifier's validation data
-    #     train_loader, _ = get_dataloaders({'train': transforms['val'], 'val': transforms['train']}, params)
-    #     posterior_probs, _ = predict_probs(train_loader, model.classifier_f)
-    #     sampler_labels = compute_sampler_condition_labels(posterior_probs, model.explain_class_idx, model.num_bins)
-    # else:
-    #     sampler_labels = None
-
     _, test_loader = get_dataloaders(transforms, opt.dataset, sampler_labels=None)
     trainer = Trainer(opt, model, args.continue_path)
     trainer.evaluate_counterfactual(test_loader, args.tau)
