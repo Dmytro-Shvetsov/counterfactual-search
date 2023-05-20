@@ -80,7 +80,6 @@ class CounterfactualLungsCGAN(nn.Module):
         self.classifier_f.eval()
         return ret
 
-    @torch.no_grad()
     def posterior_prob(self, x):
         assert self.classifier_f.training is False, 'Classifier is not set to evaluation mode'
         # f(x)
@@ -134,7 +133,8 @@ class CounterfactualLungsCGAN(nn.Module):
         fake = Variable(FloatTensor(batch_size, 1).fill_(0.0), requires_grad=False)
 
         # Classifier predictions and desired outputs for the explanation function
-        real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = self.posterior_prob(real_imgs)
+        with torch.no_grad():
+            real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = self.posterior_prob(real_imgs)
 
         # -----------------
         #  Train Generator
