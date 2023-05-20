@@ -121,13 +121,25 @@ class Trainer:
         out_dir = self.logging_dir / 'counterfactuals'
         out_dir.mkdir(exist_ok=True)
         for i, batch in tqdm(enumerate(loader), desc=f'Validating counterfactuals:', leave=False, total=len(loader)):
-            real_imgs, labels, masks = batch['image'].cuda(non_blocking=True), batch['label'], batch['mask']
-            classes.extend(labels.cpu().squeeze().numpy())
+            real_imgs, labels = batch['image'].cuda(non_blocking=True), batch['label']
             self.model:CounterfactualLungsCGAN
             real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = self.model.posterior_prob(real_imgs)
+            
+            real_neg_pos_group = ((real_f_x < 0.2) | (real_f_x > 0.8)).view(-1)
+            if not real_neg_pos_group.any():
+                continue
+            
+            # filter out samples not belonging to either real negative or positive groups
+            real_imgs, labels = real_imgs[real_neg_pos_group], labels[real_neg_pos_group.cpu()]
+            real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = (
+                real_f_x[real_neg_pos_group], real_f_x_discrete[real_neg_pos_group], 
+                real_f_x_desired[real_neg_pos_group], real_f_x_desired_discrete[real_neg_pos_group]
+            )
+
             # our ground truth is the `flipped` labels
             y_true.extend(real_f_x_desired_discrete.cpu().squeeze().numpy())
             posterior_true.extend(real_f_x.cpu().squeeze().numpy())
+            classes.extend(labels.cpu().squeeze().numpy())
 
             # computes I_f(x, c)
             gen_imgs = self.model.explanation_function(real_imgs, real_f_x_desired_discrete)
@@ -150,12 +162,12 @@ class Trainer:
 
         y_true, y_pred = np.array(y_true), np.array(y_pred)
         cacc = np.mean(y_true == y_pred)
-        self.logger.info(f'Counterfactual accuracy = {cacc}')
+        self.logger.info(f'Counterfactual accuracy = {cacc} (num_samples={len(y_pred)})')
 
         posterior_true, posterior_pred = np.array(posterior_true), np.array(posterior_pred)
         # Counterfactual Validity score 
         cv_score = np.mean((posterior_true - posterior_pred) > tau)
-        self.logger.info(f'CV(X, Xc) = {cv_score:.3f} (τ={tau})')
+        self.logger.info(f'CV(X, Xc) = {cv_score:.3f} (τ={tau}, num_samples={len(posterior_true)})')
 
         with open(out_dir / 'probs.txt', 'w') as fid:
             fid.write('i,label,bin_true,bin_pred,posterior_real,posterior_gen\n')

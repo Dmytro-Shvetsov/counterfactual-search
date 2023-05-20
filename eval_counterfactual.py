@@ -13,7 +13,6 @@ logging.basicConfig(level=logging.INFO)
 
 from src.dataset import get_dataloaders, get_transforms
 from src.cgan import build_gan, CounterfactualLungsCGAN
-from src.classifier import compute_sampler_condition_labels, predict_probs
 from src.trainer import Trainer
 
 parser = argparse.ArgumentParser()
