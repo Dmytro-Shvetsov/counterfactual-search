@@ -23,3 +23,19 @@ def CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor) -> torch.Tens
     l_rec = l_rec.mean(dim=1)
     # average across batches
     return l_rec.mean(dim=0)
+
+
+def kl_divergence(y_pred, y_true, eps=1e-5):
+    """
+    Computes KL(Q||P) where P is the distribution of the observations and Q denotes the model for the binary classification case.
+    """
+    # Clip probabilities to avoid log(0) and log(1)
+    y_pred = torch.clamp(y_pred, eps, 1.0 - eps)
+    y_true = torch.clamp(y_true, eps, 1.0 - eps)
+
+    # Compute KL divergence
+    # kl = y_pred * torch.log(y_pred / y_true) + (1 - y_pred) * torch.log((1 - y_pred) / (1 - y_true))
+    kl = y_true * torch.log(y_true / y_pred) + (1 - y_true) * torch.log((1 - y_true) / (1 - y_pred))
+    kl = torch.mean(kl)
+
+    return kl

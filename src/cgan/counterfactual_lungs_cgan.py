@@ -11,7 +11,7 @@ from src.utils.grad_norm import grad_norm
 from src.cgan.discriminator import ResBlocksDiscriminator
 from src.cgan.generator import ResBlocksEncoder, ResBlocksGenerator
 from src.classifier import build_classifier
-from src.losses import CARL
+from src.losses import CARL, kl_divergence
 
 FloatTensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if torch.cuda.is_available() else torch.LongTensor
@@ -33,7 +33,7 @@ def posterior2bin(posterior_pred:torch.Tensor, num_bins:int) -> torch.Tensor:
     bin_step = 1 / num_bins
     bins = np.arange(0, 1, bin_step)
     bin_ids = np.digitize(posterior_pred, bins=bins) - 1
-    return LongTensor(bin_ids)
+    return Variable(LongTensor(bin_ids), requires_grad=False)
 
 
 class CounterfactualLungsCGAN(nn.Module):
@@ -61,6 +61,7 @@ class CounterfactualLungsCGAN(nn.Module):
         self.lambda_adv = opt.get('lambda_adv', 1.0)
         self.lambda_kl = opt.get('lambda_kl', 1.0)
         self.lambda_rec = opt.get('lambda_rec', 1.0)
+        self.kl_clamp = 1e-8
         # by default update both generator and discriminator on each training step
         self.gen_update_freq = opt.get('gen_update_freq', 1)
 
@@ -82,11 +83,11 @@ class CounterfactualLungsCGAN(nn.Module):
 
     def posterior_prob(self, x):
         assert self.classifier_f.training is False, 'Classifier is not set to evaluation mode'
-        # f(x)
+        # f(x)[k] - classifier prediction at class k
         f_x = self.classifier_f(x).softmax(dim=1)[:, [self.explain_class_idx]]
         f_x_discrete = posterior2bin(f_x, self.num_bins)
         # the posterior probabilities `c` we would like to obtain after the explanation image is fed into the classifier
-        f_x_desired = 1.0 - f_x
+        f_x_desired = Variable(1.0 - f_x.detach(), requires_grad=False)
         f_x_desired_discrete = posterior2bin(f_x_desired, self.num_bins)
         return f_x, f_x_discrete, f_x_desired, f_x_desired_discrete
 
@@ -154,8 +155,8 @@ class CounterfactualLungsCGAN(nn.Module):
         # classifier consistency loss for generator
         # f(I_f(x, c)) ≈ c
         gen_f_x, _, _, _ = self.posterior_prob(gen_imgs)
-        g_kl = self.lambda_kl * self.KL_loss(gen_f_x.log(), real_f_x_desired) # y_pred is log_softmax and y_target is just softmax
-
+        # both y_pred and y_target are single-value probs for class k
+        g_kl = self.lambda_kl * kl_divergence(gen_f_x, real_f_x_desired)
         # reconstruction loss for generator
         g_rec_loss = self.lambda_rec * self.reconstruction_loss(real_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
 
