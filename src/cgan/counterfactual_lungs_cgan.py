@@ -55,9 +55,7 @@ class CounterfactualLungsCGAN(nn.Module):
         self.classifier_f.eval()
 
         # Loss functions
-        self.adversarial_loss = torch.nn.MSELoss()
-        self.KL_loss = torch.nn.KLDivLoss()
-        # self.adversarial_loss = torch.nn.BCEWithLogitsLoss()
+        self.adversarial_loss = torch.nn.BCEWithLogitsLoss() if opt.get('adv_loss', 'mse') == 'bce' else torch.nn.MSELoss()
         self.lambda_adv = opt.get('lambda_adv', 1.0)
         self.lambda_kl = opt.get('lambda_kl', 1.0)
         self.lambda_rec = opt.get('lambda_rec', 1.0)

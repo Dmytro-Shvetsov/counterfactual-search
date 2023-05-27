@@ -166,7 +166,7 @@ class Trainer:
 
         posterior_true, posterior_pred = np.array(posterior_true), np.array(posterior_pred)
         # Counterfactual Validity score 
-        cv_score = np.mean((posterior_true - posterior_pred) > tau)
+        cv_score = np.mean(np.abs(posterior_true - posterior_pred) > tau)
         self.logger.info(f'CV(X, Xc) = {cv_score:.3f} (τ={tau}, num_samples={len(posterior_true)})')
 
         with open(out_dir / 'probs.txt', 'w') as fid:
