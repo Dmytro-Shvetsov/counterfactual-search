@@ -31,13 +31,25 @@ The most successful experiment is provided in the `configs/experiment2.yaml` con
 In the visualizations below, the first row corresponds to the input images with posterior probability `p`. The second row is generated counterfactuals conditioned with probabilities `1-p`. The third row is the absolute difference of the first two (the brighter the pixels, the more the perturbed in those areas).
 
 <i>An example of the “covid” lungs and a counterfactual image that <b>did flip</b> the prediction generated for the second experiment:</i>
+
+<p align="center">
 <img src="demo/a_counterfactual_32_label_3_true_1_pred_1.png" style="display: block; margin: 0 auto" />
+</p>
 
 <i>An example of the “lung opacity” lungs and a counterfactual image that <b>did flip</b> the prediction generated for the second experiment:</i>
+
+<p align="center">
 <img src="demo/b_counterfactual_54_label_1_true_1_pred_1.png" style="display: block; margin: 0 auto" />
+</p>
 
 <i>An example of the “normal” lungs and a counterfactual image that <b>did flip</b> the prediction generated for the second experiment:</i>
+
+<p align="center">
 <img src="demo/c_counterfactual_113_label_0_true_0_pred_0.png" style="display: block; margin: 0 auto" />
+</p>
 
 <i>An example of the “viral pneumonia” lungs and a counterfactual image that <b>did flip</b> the prediction generated for the second experiment:</i>
+
+<p align="center">
 <img src="demo/d_counterfactual_189_label_2_true_1_pred_1.png" style="display: block; margin: 0 auto" />
+</p>
