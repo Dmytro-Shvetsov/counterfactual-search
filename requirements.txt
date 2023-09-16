@@ -8,3 +8,13 @@ PyYaml
 easydict
 tensorboard
 tqdm
+
+# code formatting & linting
+black==23.3.0
+pre-commit==3.3.3
+pre-commit-hooks==4.4.0
+ffmpeg-python==0.2.0
+flake8_bugbear==23.6.5
+flake8_comprehensions==3.13.0
+flake8_simplify==0.20.0
+isort==5.12.0

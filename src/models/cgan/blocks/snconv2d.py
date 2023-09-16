@@ -1,14 +1,12 @@
 # SOURCE: https://github.com/godisboy/SN-GAN/blob/2a5c448235be967df1bc6270c7cc24c07c78f388/src/snlayers/snconv2d.py
 # coding=utf-8
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.modules import conv
 from torch.nn.modules.utils import _pair
-import torch
-import torch.nn.functional as F
 
-#define _l2normalization
+
+# define _l2normalization
 def _l2normalize(v, eps=1e-12):
     return v / (torch.norm(v) + eps)
 
@@ -17,9 +15,9 @@ def max_singular_value(W, u=None, Ip=1):
     """
     power iteration for weight parameter
     """
-    #xp = W.data
+    # xp = W.data
     if not Ip >= 1:
-        raise ValueError("Power iteration should be a positive integer")
+        raise ValueError('Power iteration should be a positive integer')
     if u is None:
         u = torch.FloatTensor(1, W.size(0)).normal_(0, 1).cuda()
     _u = u
@@ -31,7 +29,6 @@ def max_singular_value(W, u=None, Ip=1):
 
 
 class SNConv2d(conv._ConvNd):
-
     r"""Applies a 2D convolution over an input signal composed of several input
     planes.
     In the simplest case, the output value of the layer with input size
@@ -103,14 +100,13 @@ class SNConv2d(conv._ConvNd):
     .. _link:
         https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
     """
+
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
-        super(SNConv2d, self).__init__(
-            in_channels, out_channels, kernel_size, stride, padding, dilation,
-            False, _pair(0), groups, bias, padding_mode = 'zeros')
+        super(SNConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), groups, bias, padding_mode='zeros')
         self.register_buffer('u', torch.Tensor(1, out_channels).normal_())
 
     @property
@@ -121,5 +117,4 @@ class SNConv2d(conv._ConvNd):
         return self.weight / sigma
 
     def forward(self, input):
-        return F.conv2d(input, self.W_, self.bias, self.stride,
-                        self.padding, self.dilation, self.groups)
+        return F.conv2d(input, self.W_, self.bias, self.stride, self.padding, self.dilation, self.groups)

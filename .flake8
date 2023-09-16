@@ -1,0 +1,33 @@
+[flake8]
+; ignore =
+;   E101
+;   E111
+;   E114
+;   E116
+;   E121
+;   E124
+;   E128
+;   E203
+;   E211
+;   E225
+;   E265
+;   E302
+;   E305
+;   E501
+;   E711
+;   E712
+;   E713
+;   F401
+;   F841
+;   W191
+;   W291
+;   W292
+;   W293
+;   W391
+
+ignore = E226,E302,E41
+max-line-length = 160
+exclude =
+    .git
+    __pycache__
+    data

@@ -1,14 +1,10 @@
-import os
-import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.autograd import Variable
-from torchvision.utils import save_image
-from src.utils.grad_norm import grad_norm
 
-from src.cgan.discriminator import ResBlocksDiscriminator
-from src.cgan.generator import ResBlocksEncoder, ResBlocksGenerator
+from src.models.cgan.discriminator import ResBlocksDiscriminator
+from src.models.cgan.generator import ResBlocksEncoder, ResBlocksGenerator
+from src.utils.grad_norm import grad_norm
 
 FloatTensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if torch.cuda.is_available() else torch.LongTensor
@@ -23,7 +19,7 @@ class LungsCGAN(nn.Module):
         self.enc = ResBlocksEncoder(img_size, opt.in_channels)
         self.gen = ResBlocksGenerator(opt.n_classes, in_channels=self.latent_dim)
         self.disc = ResBlocksDiscriminator(img_size, opt.n_classes, opt.in_channels)
-        
+
         # Loss functions
         self.adversarial_loss = torch.nn.MSELoss()
         self.pixel_loss = torch.nn.L1Loss()
@@ -42,12 +38,13 @@ class LungsCGAN(nn.Module):
         # Configure input
         real_imgs = Variable(imgs.type(FloatTensor))
         labels = Variable(labels.type(LongTensor))
-        
+
         # -----------------
         #  Train Generator
         # -----------------
 
-        if training: self.optimizer_G.zero_grad()
+        if training:
+            self.optimizer_G.zero_grad()
 
         z = self.enc(real_imgs)
         gen_imgs = self.gen(z, labels)
@@ -60,14 +57,16 @@ class LungsCGAN(nn.Module):
 
         if training:
             g_loss.backward()
-            if compute_norms: self.norms['G'] = grad_norm(self.gen)
+            if compute_norms:
+                self.norms['G'] = grad_norm(self.gen)
             self.optimizer_G.step()
 
         # ---------------------
         #  Train Discriminator
         # ---------------------
 
-        if training: self.optimizer_D.zero_grad()
+        if training:
+            self.optimizer_D.zero_grad()
 
         # Loss for real images
         validity_real = self.disc(real_imgs, labels)
@@ -82,12 +81,13 @@ class LungsCGAN(nn.Module):
 
         if training:
             d_loss.backward()
-            if compute_norms: self.norms['D'] = grad_norm(self.disc)
+            if compute_norms:
+                self.norms['D'] = grad_norm(self.disc)
             self.optimizer_D.step()
 
         return {
             'loss': {
-                'g_loss': g_loss.item(),
+                'g_pixel_loss': g_pixel_loss.item(),
                 'g_adv': g_adv_loss.item(),
                 'g_loss': g_loss.item(),
                 'pixel_loss': g_pixel_loss,

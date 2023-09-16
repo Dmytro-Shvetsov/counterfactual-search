@@ -1,0 +1,20 @@
+[tool.black]
+line-length = 160
+target-version = ["py310"]
+exclude = '''
+(
+  /(
+      \.eggs
+    | \.git
+    | \.venv
+    | venv
+    | data
+  )/
+)
+'''
+
+skip-string-normalization = true
+
+[tool.isort]
+profile = "black"
+line_length = 160

@@ -1,5 +1,5 @@
-from .lungs_cgan import LungsCGAN
 from .counterfactual_lungs_cgan import CounterfactualLungsCGAN
+from .lungs_cgan import LungsCGAN
 
 
 def build_gan(opt, **kwargs):

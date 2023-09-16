@@ -1,26 +1,24 @@
 import itertools
-import os
+
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.autograd import Variable
-from torchvision.utils import save_image
-from src.utils.grad_norm import grad_norm
 
-from src.cgan.discriminator import ResBlocksDiscriminator
-from src.cgan.generator import ResBlocksEncoder, ResBlocksGenerator
 from src.classifier import build_classifier
 from src.losses import CARL, kl_divergence
+from src.models.cgan.discriminator import ResBlocksDiscriminator
+from src.models.cgan.generator import ResBlocksEncoder, ResBlocksGenerator
+from src.utils.grad_norm import grad_norm
 
 FloatTensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if torch.cuda.is_available() else torch.LongTensor
 
 
 @torch.no_grad()
-def posterior2bin(posterior_pred:torch.Tensor, num_bins:int) -> torch.Tensor:
+def posterior2bin(posterior_pred: torch.Tensor, num_bins: int) -> torch.Tensor:
     """
-    Given classifier predictions in range [0; 1] and the number of condition bins, returns the condition labels. 
+    Given classifier predictions in range [0; 1] and the number of condition bins, returns the condition labels.
 
     Args:
         posterior_pred (torch.Tensor): classifier predictions
@@ -42,8 +40,8 @@ class CounterfactualLungsCGAN(nn.Module):
 
         self.opt = opt
         self.latent_dim = opt.get('noise_dim', 1024)
-        self.explain_class_idx = opt.explain_class_idx # class id to be explained
-        self.num_bins = opt.num_bins # number of bins for explanation
+        self.explain_class_idx = opt.explain_class_idx  # class id to be explained
+        self.num_bins = opt.num_bins  # number of bins for explanation
         self.enc = ResBlocksEncoder(img_size, opt.in_channels)
         # generator and discriminator are conditioned against a discrete bin index which is computed
         # from the classifier probability for the explanation class using `posterior2bin` function
@@ -64,8 +62,8 @@ class CounterfactualLungsCGAN(nn.Module):
         self.gen_update_freq = opt.get('gen_update_freq', 1)
 
         self.optimizer_G = torch.optim.Adam(
-            itertools.chain.from_iterable((self.enc.parameters(), self.gen.parameters())), 
-            lr=opt.lr, 
+            itertools.chain.from_iterable((self.enc.parameters(), self.gen.parameters())),
+            lr=opt.lr,
             betas=(opt.b1, opt.b2),
         )
         self.optimizer_D = torch.optim.Adam(self.disc.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
@@ -100,9 +98,9 @@ class CounterfactualLungsCGAN(nn.Module):
 
     def reconstruction_loss(self, real_imgs, masks, f_x_discrete, f_x_desired_discrete, z=None):
         """
-        Computes a reconstruction loss L_rec(E, G) that enforces self-consistency loss 
+        Computes a reconstruction loss L_rec(E, G) that enforces self-consistency loss
         Formula 9 https://arxiv.org/pdf/2101.04230v3.pdf#page=7&zoom=100,30,412
-        
+
         f_x_discrete - bin index for posterior probability f(x)
         f_x_desired_discrete - bin index for posterior probability 1 - f(x) (also known as desired probability)
         """
@@ -113,7 +111,7 @@ class CounterfactualLungsCGAN(nn.Module):
 
         # I_f(I_f(x, c), f(x))
         ifxc_fx = self.explanation_function(
-            x=self.explanation_function(real_imgs, f_x_desired_discrete, z=z), # I_f(x, c)
+            x=self.explanation_function(real_imgs, f_x_desired_discrete, z=z),  # I_f(x, c)
             f_x_discrete=f_x_discrete,
         )
         cyclic_term = CARL(real_imgs, ifxc_fx, masks)
@@ -138,18 +136,19 @@ class CounterfactualLungsCGAN(nn.Module):
         # -----------------
         #  Train Generator
         # -----------------
-        if training: self.optimizer_G.zero_grad()
+        if training:
+            self.optimizer_G.zero_grad()
 
-        # E(x) 
+        # E(x)
         z = self.enc(real_imgs)
-        # G(z, c) 
+        # G(z, c)
         gen_imgs = self.gen(z, real_f_x_desired_discrete)
 
         update_generator = global_step is not None and global_step % self.gen_update_freq == 0
         # data consistency loss for generator
         validity = self.disc(gen_imgs, real_f_x_desired_discrete)
         g_adv_loss = self.lambda_adv * self.adversarial_loss(validity, valid)
-        
+
         # classifier consistency loss for generator
         # f(I_f(x, c)) ≈ c
         gen_f_x, _, _, _ = self.posterior_prob(gen_imgs)
@@ -161,17 +160,18 @@ class CounterfactualLungsCGAN(nn.Module):
         # total generator loss
         g_loss = g_adv_loss + g_kl + g_rec_loss
 
-        if training and update_generator: 
+        if training and update_generator:
             g_loss.backward()
             if compute_norms:
-                self.norms['E'] = grad_norm(self.enc) 
+                self.norms['E'] = grad_norm(self.enc)
                 self.norms['G'] = grad_norm(self.gen)
             self.optimizer_G.step()
 
         # ---------------------
         #  Train Discriminator
         # ---------------------
-        if training: self.optimizer_D.zero_grad()
+        if training:
+            self.optimizer_D.zero_grad()
 
         # data consistency loss for discriminator (real images)
         validity_real = self.disc(real_imgs, real_f_x_desired_discrete)
@@ -186,7 +186,8 @@ class CounterfactualLungsCGAN(nn.Module):
 
         if training:
             d_loss.backward()
-            if compute_norms: self.norms['D'] = grad_norm(self.disc)
+            if compute_norms:
+                self.norms['D'] = grad_norm(self.disc)
             self.optimizer_D.step()
 
         outs = {

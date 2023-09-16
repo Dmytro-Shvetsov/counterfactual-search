@@ -1,9 +1,9 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from src.cgan import blocks
+from src.models.cgan import blocks
+
 
 class Generator(nn.Module):
     def __init__(self, n_classes, img_shape, latent_dim=100):
@@ -25,7 +25,7 @@ class Generator(nn.Module):
             *block(256, 512),
             *block(512, 1024),
             nn.Linear(1024, int(np.prod(img_shape))),
-            nn.Tanh()
+            nn.Tanh(),
         )
 
     def forward(self, noise, labels):
@@ -38,6 +38,7 @@ class Generator(nn.Module):
 
 class ResBlocksEncoder(nn.Module):
     """Table 5(a) - https://arxiv.org/pdf/2101.04230v3.pdf"""
+
     def __init__(self, img_shape, in_channels=1):
         super().__init__()
         self.first_block = nn.Sequential(
@@ -45,13 +46,15 @@ class ResBlocksEncoder(nn.Module):
             nn.ReLU(),
             nn.Conv2d(in_channels, 64, kernel_size=3, padding=1),
         )
-        self.blocks = nn.ModuleList([
-            blocks.EncoderResBlock([d // 2 for d in img_shape], in_channels, out_channels=64),
-            blocks.EncoderResBlock([d // 4 for d in img_shape], 64, out_channels=128),
-            blocks.EncoderResBlock([d // 8 for d in img_shape], 128, out_channels=256),
-            blocks.EncoderResBlock([d // 16 for d in img_shape], 256, out_channels=512),
-            blocks.EncoderResBlock([d // 32 for d in img_shape], 512, out_channels=1024),
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                blocks.EncoderResBlock([d // 2 for d in img_shape], in_channels, out_channels=64),
+                blocks.EncoderResBlock([d // 4 for d in img_shape], 64, out_channels=128),
+                blocks.EncoderResBlock([d // 8 for d in img_shape], 128, out_channels=256),
+                blocks.EncoderResBlock([d // 16 for d in img_shape], 256, out_channels=512),
+                blocks.EncoderResBlock([d // 32 for d in img_shape], 512, out_channels=1024),
+            ]
+        )
 
     def forward(self, imgs):
         outs = imgs
@@ -62,21 +65,19 @@ class ResBlocksEncoder(nn.Module):
 
 class ResBlocksGenerator(nn.Module):
     """Table 5(b) - https://arxiv.org/pdf/2101.04230v3.pdf"""
+
     def __init__(self, n_classes, in_channels=1024):
         super().__init__()
-        self.blocks = nn.ModuleList([
-            blocks.GeneratorResBlock(n_classes, in_channels, in_channels, scale_factor=2),
-            blocks.GeneratorResBlock(n_classes, in_channels, 512, scale_factor=2),
-            blocks.GeneratorResBlock(n_classes, 512, 256, scale_factor=2),
-            blocks.GeneratorResBlock(n_classes, 256, 128, scale_factor=2),
-            blocks.GeneratorResBlock(n_classes, 128, 64, scale_factor=2),
-        ])
-        self.last_block = nn.Sequential(
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.Conv2d(64, 1, kernel_size=3, padding=1),
-            nn.Tanh()
+        self.blocks = nn.ModuleList(
+            [
+                blocks.GeneratorResBlock(n_classes, in_channels, in_channels, scale_factor=2),
+                blocks.GeneratorResBlock(n_classes, in_channels, 512, scale_factor=2),
+                blocks.GeneratorResBlock(n_classes, 512, 256, scale_factor=2),
+                blocks.GeneratorResBlock(n_classes, 256, 128, scale_factor=2),
+                blocks.GeneratorResBlock(n_classes, 128, 64, scale_factor=2),
+            ]
         )
+        self.last_block = nn.Sequential(nn.BatchNorm2d(64), nn.ReLU(), nn.Conv2d(64, 1, kernel_size=3, padding=1), nn.Tanh())
 
     def forward(self, z, labels):
         outs = z

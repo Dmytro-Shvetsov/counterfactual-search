@@ -1,21 +1,20 @@
 import argparse
 import logging
 import os
-import shutil
-import numpy as np
 import random
+import shutil
+
+import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import yaml
 from easydict import EasyDict as edict
 
-logging.basicConfig(level=logging.INFO)
-
-from src.dataset import get_dataloaders, get_transforms
-from src.cgan import build_gan
+from datasets.lungs import get_dataloaders, get_transforms
 from src.classifier import compute_sampler_condition_labels, predict_probs
-from src.trainer import Trainer
+from src.models import build_model
+from src.trainers import build_trainer
+
+logging.basicConfig(level=logging.INFO)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config_path', type=str, required=False, help='Configuration file path to start training from scratch')
@@ -36,12 +35,11 @@ def main(args):
         opt = edict(opt)
     seed_everything(opt.seed)
 
-    model_kind = opt.model.get('kind')
-    model = build_gan(opt.model, img_size=opt.dataset.img_size)
+    model = build_model(opt.task_name, opt=opt.model, img_size=opt.dataset.img_size)
 
     transforms = get_transforms(opt.dataset)
-    if model_kind.startswith('counterfactual'):
-        # compute sampler labels to create batches with uniformly distributed labels 
+    if opt.task_name == 'counterfactual':
+        # compute sampler labels to create batches with uniformly distributed labels
         params = edict(opt.dataset, use_sampler=False, shuffle_test=False)
         # GAN's train data is expected to be classifier's validation data
         train_loader, _ = get_dataloaders({'train': transforms['val'], 'val': transforms['train']}, params)
@@ -52,7 +50,7 @@ def main(args):
 
     dataloaders = get_dataloaders(transforms, opt.dataset, sampler_labels=sampler_labels)
 
-    trainer = Trainer(opt, model, args.continue_path)
+    trainer = build_trainer(opt.task_name, opt, model, args.continue_path)
     if args.continue_path is None:
         shutil.copy2(args.config_path, trainer.logging_dir / 'hparams.yaml')
     logging.info('Started training.')
