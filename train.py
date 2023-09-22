@@ -9,8 +9,6 @@ import torch
 import yaml
 from easydict import EasyDict as edict
 
-from datasets.lungs import get_dataloaders, get_transforms
-from src.classifier import compute_sampler_condition_labels, predict_probs
 from src.models import build_model
 from src.trainers import build_trainer
 
@@ -36,25 +34,12 @@ def main(args):
     seed_everything(opt.seed)
 
     model = build_model(opt.task_name, opt=opt.model, img_size=opt.dataset.img_size)
-
-    transforms = get_transforms(opt.dataset)
-    if opt.task_name == 'counterfactual':
-        # compute sampler labels to create batches with uniformly distributed labels
-        params = edict(opt.dataset, use_sampler=False, shuffle_test=False)
-        # GAN's train data is expected to be classifier's validation data
-        train_loader, _ = get_dataloaders({'train': transforms['val'], 'val': transforms['train']}, params)
-        posterior_probs, _ = predict_probs(train_loader, model.classifier_f)
-        sampler_labels = compute_sampler_condition_labels(posterior_probs, model.explain_class_idx, model.num_bins)
-    else:
-        sampler_labels = None
-
-    dataloaders = get_dataloaders(transforms, opt.dataset, sampler_labels=sampler_labels)
-
     trainer = build_trainer(opt.task_name, opt, model, args.continue_path)
+
     if args.continue_path is None:
         shutil.copy2(args.config_path, trainer.logging_dir / 'hparams.yaml')
     logging.info('Started training.')
-    trainer.fit(dataloaders)
+    trainer.fit()
     logging.info('Finished training.')
 
 

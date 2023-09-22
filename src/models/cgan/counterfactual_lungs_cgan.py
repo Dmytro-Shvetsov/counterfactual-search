@@ -5,10 +5,10 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
-from src.classifier import build_classifier
 from src.losses import CARL, kl_divergence
 from src.models.cgan.discriminator import ResBlocksDiscriminator
 from src.models.cgan.generator import ResBlocksEncoder, ResBlocksGenerator
+from src.models.classifier import build_classifier
 from src.utils.grad_norm import grad_norm
 
 FloatTensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor

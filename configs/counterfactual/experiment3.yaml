@@ -1,3 +1,5 @@
+task_name: counterfactual
+
 seed: 777
 sample_interval: 30
 
@@ -31,11 +33,11 @@ model:
   # counterfactual parameters
   num_bins: 2 # number of discrete bins into which posterior probabilities are sorted
   explain_class_idx: 0 # normal lungs
-  
+
   # classifier parameters
   n_classes: 4 # number of classes in the classifier
   classifier_ckpt: ./saved_models/resnet18_multiclass_pretrain.pth
-  
+
   # optimizers' parameters
   lr: 0.0002
   b1: 0.0

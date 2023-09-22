@@ -5,7 +5,10 @@ from easydict import EasyDict as edict
 from torchvision.utils import save_image
 from tqdm import tqdm
 
+from src.datasets.augmentations import get_transforms
+from src.datasets.lungs import get_covid_dataloaders
 from src.models.cgan import CounterfactualLungsCGAN
+from src.models.classifier import compute_sampler_condition_labels, predict_probs
 from src.trainers.trainer import BaseTrainer
 from src.utils.avg_meter import AvgMeter
 from src.utils.generic_utils import save_model
@@ -28,6 +31,20 @@ class CounterfactualTrainer(BaseTrainer):
 
     def save_state(self) -> str:
         return save_model(self.opt, self.model, (self.model.optimizer_G, self.model.optimizer_D), self.batches_done, self.current_epoch, self.ckpt_dir)
+
+    def get_dataloaders(self) -> tuple:
+        transforms = get_transforms(self.opt.dataset)
+        if self.opt.task_name == 'counterfactual':
+            # compute sampler labels to create batches with uniformly distributed labels
+            params = edict(self.opt.dataset, use_sampler=False, shuffle_test=False)
+            # GAN's train data is expected to be classifier's validation data
+            train_loader, _ = get_covid_dataloaders({'train': transforms['val'], 'val': transforms['train']}, params)
+            posterior_probs, _ = predict_probs(train_loader, self.model.classifier_f)
+            sampler_labels = compute_sampler_condition_labels(posterior_probs, self.model.explain_class_idx, self.model.num_bins)
+        else:
+            sampler_labels = None
+
+        return get_covid_dataloaders(transforms, self.opt.dataset, sampler_labels=sampler_labels)
 
     def training_epoch(self, loader: torch.utils.data.DataLoader) -> None:
         self.model.train()
@@ -74,28 +91,6 @@ class CounterfactualTrainer(BaseTrainer):
             % (self.current_epoch, self.opt.n_epochs, epoch_stats['d_loss'], epoch_stats['g_loss'])
         )
         return epoch_stats
-
-    def fit(self, data_loaders):
-        train_loader, val_loader = data_loaders
-        for _ in range(self.current_epoch, self.opt.n_epochs):
-            epoch_stats = self.training_epoch(train_loader)
-            self.logger.info(
-                '[Finished training epoch %d/%d] [Epoch D loss: %f] [Epoch G loss: %f]'
-                % (self.current_epoch, self.opt.n_epochs, epoch_stats['d_loss'], epoch_stats['g_loss'])
-            )
-            epoch_stats = self.validation_epoch(val_loader)
-            self.logger.info(
-                '[Finished validation epoch %d/%d] [Epoch D loss: %f] [Epoch G loss: %f]'
-                % (self.current_epoch, self.opt.n_epochs, epoch_stats['d_loss'], epoch_stats['g_loss'])
-            )
-            if self.current_epoch % self.opt.checkpoint_freq == 0:
-                ckpt_path = save_model(
-                    self.opt, self.model, (self.model.optimizer_G, self.model.optimizer_D), self.batches_done, self.current_epoch, self.ckpt_dir
-                )
-                self.logger.info(f'Saved checkpoint parameters at epoch {self.current_epoch}: {ckpt_path}')
-            self.current_epoch += 1
-        ckpt_path = save_model(self.opt, self.model, (self.model.optimizer_G, self.model.optimizer_D), self.batches_done, self.current_epoch, self.ckpt_dir)
-        self.logger.info(f'Saved checkpoint parameters at epoch {self.current_epoch}: {ckpt_path}')
 
     @torch.no_grad()
     def evaluate_counterfactual(self, loader, tau=0.8):

@@ -1,0 +1,40 @@
+task_name: classification
+
+seed: 777
+sample_interval: 30
+
+n_epochs: 1000
+epoch_steps: 100
+
+logging_dir: './training_logs/classification'
+checkpoint_freq: 5
+
+dataset:
+  root_dir: data/totalsegmentor # 1804 * 64 slices in totalsegmentor dataset
+  batch_size: 64
+  img_size: [256, 256] # hxw
+  use_sampler: True
+  reset_sampler: False
+  num_workers: 8
+  imagenet_norm: False # mean=[0.5], std=[0.5]
+  augs: [] # only resize and norm
+
+  scan_params:
+    min_max_normalization: True
+    slicing_direction: axial
+    classes: ['empty', 'kidney']
+    sampling_class: 'kidney'
+
+model:
+  kind: resnet18
+  n_classes: 1
+  pretrained: True
+  restore_ckpt: null
+  in_channels: 1
+
+  loss: bce
+
+  # optimizers' parameters
+  lr: 0.0002
+  b1: 0.0
+  b2: 0.999

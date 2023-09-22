@@ -21,6 +21,7 @@ class BaseTrainer:
         self.batches_done = 0
         self.current_epoch = 0
 
+        print(continue_path)
         self.logging_dir = Path(continue_path or get_experiment_folder_path(opt.logging_dir, opt.model.kind))
         self.vis_dir = self.logging_dir / 'visualizations'
         self.ckpt_dir = self.logging_dir / 'checkpoints'
@@ -50,7 +51,12 @@ class BaseTrainer:
     def validation_epoch(self, loader: torch.utils.data.DataLoader) -> dict:
         """Runs a validation epoch for a given loader and returns the results, which can include epoch loss, metrics, etc"""
 
-    def fit(self, data_loaders):
+    @abstractmethod
+    def get_dataloaders(self) -> tuple[torch.utils.data.DataLoader]:
+        pass
+
+    def fit(self):
+        data_loaders = self.get_dataloaders()
         train_loader, val_loader = data_loaders
         for _ in range(self.current_epoch, self.opt.n_epochs):
             _ = self.training_epoch(train_loader)
