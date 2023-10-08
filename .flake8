@@ -25,7 +25,7 @@
 ;   W293
 ;   W391
 
-ignore = E226,E302,E41
+ignore = E226,E302,E41,W503
 max-line-length = 160
 exclude =
     .git

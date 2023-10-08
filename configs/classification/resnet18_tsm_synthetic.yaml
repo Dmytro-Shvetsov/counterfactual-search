@@ -24,6 +24,10 @@ dataset:
     slicing_direction: axial
     classes: ['empty', 'kidney']
     sampling_class: 'kidney'
+    synth_params:
+      p: 0.6
+      size: 8
+      sigma: 0.5
 
 model:
   kind: resnet18
@@ -34,7 +38,7 @@ model:
 
   loss: bce
 
-  # optimizers' parameters
+  # optimizer's parameters
   lr: 0.0002
   b1: 0.0
   b2: 0.999

@@ -52,6 +52,7 @@ class ClassificationTrainer(BaseTrainer):
                 if i == epoch_steps:
                     break
                 batch = {k: v.to(self.device) for k, v in batch.items()}
+                print(batch['label'].sum())
                 self.batches_done = self.current_epoch * len(loader) + i
                 sample_step = self.batches_done % self.opt.sample_interval == 0
                 outs = self.model(batch, training=True, global_step=self.batches_done)
@@ -81,6 +82,7 @@ class ClassificationTrainer(BaseTrainer):
         losses = []
         for _, batch in tqdm(enumerate(loader), desc=f'Validation epoch: {self.current_epoch}', leave=False, total=len(loader)):
             batch = {k: v.to(self.device) for k, v in batch.items()}
+            print('val', batch['label'].sum())
             outs = self.model(batch, training=False)
 
             self.val_metrics.update(outs['preds'], batch['label'])
