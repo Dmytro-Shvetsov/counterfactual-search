@@ -1,0 +1,56 @@
+task_name: counterfactual
+
+seed: 777
+sample_interval: 300
+
+n_epochs: 1000
+# epoch_steps: 800
+
+logging_dir: ./training_logs/counterfactual
+experiment_name: tsm_synth_r18_e2e_kdn-only_fix_kl_fix_rec
+checkpoint_freq: 10
+eval_counter_freq: 2
+
+dataset:
+  kind: totalsegmentor
+  root_dir: /tmp/totalsegmentor # 1804 * 64 slices in totalsegmentor dataset
+  batch_size: 16
+  img_size: [256, 256] # hxw
+  use_sampler: False
+  num_workers: 28
+  imagenet_norm: False # mean=[0.5], std=[0.5]
+  augs: [] # only resize and norm
+
+  scan_params:
+    load_masks: True
+    min_max_normalization: True
+    slicing_direction: axial
+    classes: ['empty', 'kidney']
+    filter_class_slices: 'kidney' # fetch only kidney slices in loaders
+    synth_params:
+      p: 0.5
+      size: 8
+      sigma: 0.5
+
+model:
+  kind: counterfactual_lungs_cgan
+  in_channels: 1
+  gen_update_freq: 5
+  lambda_adv: 1.0
+  # lambda_kl: 0.05
+  lambda_kl: 1.0
+  lambda_rec: 6
+
+  # counterfactual parameters
+  num_bins: 2 # number of discrete bins into which posterior probabilities are sorted
+  explain_class_idx: 0 # normal/not-normal kidneys
+
+  # classifier parameters
+  classifier_kind: resnet18
+  n_classes: 1 # number of classes in the classifier
+  classifier_ckpt: training_logs/classification/resnet18-October-21-2023_02+35PM-af13228-tsm_synth_r18_kdn-only/checkpoints/checkpoint_50.pth
+
+  # optimizers' parameters
+  lr: 0.0002
+  b1: 0.0
+  b2: 0.999

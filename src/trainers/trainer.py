@@ -21,8 +21,7 @@ class BaseTrainer:
         self.batches_done = 0
         self.current_epoch = 0
 
-        print(continue_path)
-        self.logging_dir = Path(continue_path or get_experiment_folder_path(opt.logging_dir, opt.model.kind))
+        self.logging_dir = Path(continue_path or get_experiment_folder_path(opt.logging_dir, opt.model.kind, opt.get('experiment_name', 'exp')))
         self.vis_dir = self.logging_dir / 'visualizations'
         self.ckpt_dir = self.logging_dir / 'checkpoints'
         self.logger = Logger(self.logging_dir)

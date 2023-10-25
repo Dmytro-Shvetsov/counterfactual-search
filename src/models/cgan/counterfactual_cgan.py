@@ -34,7 +34,7 @@ def posterior2bin(posterior_pred: torch.Tensor, num_bins: int) -> torch.Tensor:
     return Variable(LongTensor(bin_ids), requires_grad=False)
 
 
-class CounterfactualLungsCGAN(nn.Module):
+class CounterfactualCGAN(nn.Module):
     def __init__(self, img_size, opt, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -49,7 +49,8 @@ class CounterfactualLungsCGAN(nn.Module):
         self.disc = ResBlocksDiscriminator(img_size, self.num_bins, opt.in_channels)
 
         # black box classifier
-        self.classifier_f = build_classifier(opt.n_classes, pretrained=False, restore_ckpt=opt.classifier_ckpt)
+        self.n_classes = opt.n_classes
+        self.classifier_f = build_classifier(opt.classifier_kind, opt.n_classes, pretrained=False, restore_ckpt=opt.classifier_ckpt)
         self.classifier_f.eval()
 
         # Loss functions
@@ -80,7 +81,9 @@ class CounterfactualLungsCGAN(nn.Module):
     def posterior_prob(self, x):
         assert self.classifier_f.training is False, 'Classifier is not set to evaluation mode'
         # f(x)[k] - classifier prediction at class k
-        f_x = self.classifier_f(x).softmax(dim=1)[:, [self.explain_class_idx]]
+        f_x = self.classifier_f(x)
+        f_x = f_x.softmax(dim=1) if self.n_classes > 1 else f_x.sigmoid()
+        f_x = f_x[:, [self.explain_class_idx]]
         f_x_discrete = posterior2bin(f_x, self.num_bins)
         # the posterior probabilities `c` we would like to obtain after the explanation image is fed into the classifier
         f_x_desired = Variable(1.0 - f_x.detach(), requires_grad=False)
@@ -114,11 +117,12 @@ class CounterfactualLungsCGAN(nn.Module):
             x=self.explanation_function(real_imgs, f_x_desired_discrete, z=z),  # I_f(x, c)
             f_x_discrete=f_x_discrete,
         )
+        # L_rec(x, I_f(I_f(x, c), f(x)))
         cyclic_term = CARL(real_imgs, ifxc_fx, masks)
         return forward_term + cyclic_term
 
     def forward(self, batch, training=False, compute_norms=False, global_step=None):
-        imgs, labels, masks = batch['image'], batch['label'], batch['mask']
+        imgs, labels, masks = batch['image'], batch['label'], batch['masks']
         batch_size = imgs.shape[0]
 
         # Configure input

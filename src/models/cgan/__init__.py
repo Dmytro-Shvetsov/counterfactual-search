@@ -1,4 +1,4 @@
-from .counterfactual_lungs_cgan import CounterfactualLungsCGAN
+from .counterfactual_cgan import CounterfactualCGAN
 from .lungs_cgan import LungsCGAN
 
 
@@ -7,6 +7,6 @@ def build_gan(opt, **kwargs):
     if opt.kind == 'lungs_cgan':
         return LungsCGAN(opt=opt, **kwargs)
     elif opt.kind == 'counterfactual_lungs_cgan':
-        return CounterfactualLungsCGAN(opt=opt, **kwargs)
+        return CounterfactualCGAN(opt=opt, **kwargs)
     else:
         raise ValueError(f'Invalid architecture type: {opt.kind}')

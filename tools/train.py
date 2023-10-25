@@ -20,11 +20,14 @@ parser.add_argument('-cp', '--continue_path', type=str, required=False, help='Pa
 opt = parser.parse_args()
 
 
-def seed_everything(seed):
+def seed_everything(seed: int):
     random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
 
 
 def main(args):

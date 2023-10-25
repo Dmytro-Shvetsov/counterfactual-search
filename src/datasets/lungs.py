@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import albumentations as albu
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,7 +12,16 @@ from torchsampler import ImbalancedDatasetSampler
 class LungsDataset(torch.utils.data.Dataset):
     CLASSES = 'normal', 'lung_opacity', 'viral_pneumonia', 'covid'
 
-    def __init__(self, ann_path, transforms=None):
+    def __init__(self, root_dir:str, split:str, transforms:albu.Compose=None, explain_classifier: bool = True):
+        root_dir = Path(root_dir)
+        if explain_classifier:
+            # dataset split for training/evaluation of counterfactual model
+            ann_name = 'classifier_validation.csv' if split == 'train' else 'explanator_val.csv'
+        else:
+            # dataset split for training/evaluation of classification model
+            ann_name = 'classifier_train.csv' if split == 'train' else 'classifier_validation.csv'
+        ann_path = root_dir / ann_name
+
         self.labels, self.image_paths, self.mask_paths = self._load_anns(ann_path)
         self.labels = [self.CLASSES.index(lb) for lb in self.labels]
         self.transforms = transforms
@@ -40,7 +50,7 @@ class LungsDataset(torch.utils.data.Dataset):
             sample = self.transforms(**sample)
         sample['label'] = label
         sample['image'] = sample['image'][np.newaxis]
-        sample['mask'] = (sample['mask'].clip(0, 1))[np.newaxis]
+        sample['masks'] = (sample.pop('mask').clip(0, 1))[np.newaxis]
         return sample
 
     def get_sampling_labels(self):

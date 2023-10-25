@@ -1,10 +1,11 @@
-from pathlib import Path
-from typing import Tuple, List
-import torch
 import datetime
+import logging
 import os
 import subprocess
-import logging
+from pathlib import Path
+from typing import List, Tuple
+
+import torch
 
 
 def get_commit_hash():
@@ -16,11 +17,11 @@ def get_commit_hash():
     return commit
 
 
-def get_experiment_folder_path(root_path, model_name):
+def get_experiment_folder_path(root_path, model_name, experiment_name='exp'):
     """Get an experiment folder path with the current date and time"""
     date_str = datetime.datetime.now().strftime("%B-%d-%Y_%I+%M%p")
     commit_hash = get_commit_hash()
-    output_folder = os.path.join(root_path, model_name + "-" + date_str + "-" + commit_hash)
+    output_folder = os.path.join(root_path, model_name + "-" + date_str + "-" + commit_hash + '-' + experiment_name)
     os.makedirs(output_folder)
     return output_folder
 
@@ -35,7 +36,7 @@ def setup_logger(name, log_file=None):
         level=logging.INFO, 
         format= r'[%(asctime)s|%(levelname)s] - %(message)s',
         datefmt=r'%Y-%m-%d %H:%M:%S',
-        handlers=[logging.StreamHandler()] + ([logging.FileHandler(log_file, 'a')] if log_file is not None else [])
+        handlers=[logging.StreamHandler()] + ([logging.FileHandler(log_file, 'a+')] if log_file is not None else [])
     )
     return logging.getLogger(name)
 
@@ -51,6 +52,6 @@ def save_model(config:dict, model:torch.nn.Module, optimizers:List[torch.nn.Modu
         'date': datetime.date.today().strftime('%B %d, %Y'),
         **kwargs,
     }
-    checkpoint_path = checkpoint_dir / f'checkpoint_{current_step}.pth'
+    checkpoint_path = checkpoint_dir / f'checkpoint_{epoch}.pth'
     torch.save(state, checkpoint_path)
     return checkpoint_path

@@ -1,5 +1,6 @@
 from math import ceil
 from pathlib import Path
+from random import choice
 
 import albumentations as albu
 import cv2
@@ -22,12 +23,12 @@ def gaussian_blob(size, mu=0, sigma=0.5):
     return g
 
 
-def sample_random_mask_point(mask, margin_pct=0.1, cnt=None, rect=None):
+def sample_random_mask_point(mask, margin_pct=0.1, cnt=None, rect=None, num_comps_choose_from=2):
     if cnt is None:
         cnts = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
         if not cnts:
             return None, None
-        cnt = max(cnts, key=cv2.contourArea)
+        cnt = choice(sorted(cnts, key=cv2.contourArea)[-num_comps_choose_from:])
         rect = cv2.boundingRect(cnt)
     x, y, w, h = rect
     offset_x, offset_y = int(w * margin_pct / 2), int(h * margin_pct / 2)
@@ -35,7 +36,7 @@ def sample_random_mask_point(mask, margin_pct=0.1, cnt=None, rect=None):
     cy = np.random.randint(y + offset_y, y + h - offset_y)
 
     if cv2.pointPolygonTest(cnt, (cx, cy), False) != 1:
-        return sample_random_mask_point(mask, margin_pct, cnt, (x, y, w, h))
+        return sample_random_mask_point(mask, margin_pct, cnt, rect, num_comps_choose_from)
     return (cx, cy), rect
 
 
@@ -73,6 +74,7 @@ class CTScan(torch.utils.data.Dataset):
         slicing_direction: str = 'axial',
         classes: list[str] = ('empty', 'kidney'),
         sampling_class: str = 'kidney',
+        filter_class_slices: str = None,
         synth_params: dict = None,
         load_masks: bool = False,
     ):
@@ -88,6 +90,7 @@ class CTScan(torch.utils.data.Dataset):
         assert self.scan.shape == self.labels.shape, 'Shapes of provided scan and labels volumes do not match'
 
         self.sampling_class = sampling_class
+        self.filter_class_slices = filter_class_slices
         self.classes = classes  # TODO: check out if nnUnet has tumor label as 2 or 3
         self.class_to_idx = {c: i for i, c in enumerate(self.classes)}
 
@@ -102,6 +105,10 @@ class CTScan(torch.utils.data.Dataset):
             ]
         )
         self.load_masks = load_masks
+        
+        self.slice_indices = None
+        if self.filter_class_slices is not None:
+            self.slice_indices = self.get_slice_indices(filter_class_slices)
 
     def load_volume(self, scan_path: Path) -> np.ndarray:
         mmap_path = scan_path.with_name(scan_path.stem + '.npy')
@@ -120,6 +127,14 @@ class CTScan(torch.utils.data.Dataset):
         dims = tuple(i for i in range(len(self.scan.shape)) if i != self.slicing_dim)
         return (self.labels == class_id).any(axis=dims).astype(np.uint8)
 
+    def get_slice_indices(self, class_name):
+        class_id = self.class_to_idx[self.sampling_class]
+        dims = tuple(i for i in range(len(self.scan.shape)) if i != self.slicing_dim)
+        indices = np.nonzero((self.labels == class_id).any(axis=dims))[0]
+        if indices.shape[0] == 0:
+            print(f'{self} has no slices for class: {class_name}')
+        return indices
+
     def _get_slicer(self, index: int) -> np.ndarray:
         if self.slicing_dim == 0:
             return np.s_[index]
@@ -134,9 +149,10 @@ class CTScan(torch.utils.data.Dataset):
         return volume[self._get_slicer(index)]
 
     def __len__(self):
-        return self.scan.shape[self.slicing_dim]
+        return len(self.slice_indices) if self.slice_indices is not None else self.scan.shape[self.slicing_dim]
 
     def __getitem__(self, index):
+        index = self.slice_indices[index] if self.slice_indices is not None else index
         scan_slice = self.get_ith_slice(self.scan, index)
         label_slice = self.get_ith_slice(self.labels, index)
 
@@ -163,14 +179,16 @@ class CTScan(torch.utils.data.Dataset):
 
         if augment_anomaly:
             try:
-                cpt, rect = sample_random_mask_point(target_mask)
+                # randomly sample a point in one of the kidneys
+                cpt, rect = sample_random_mask_point(target_mask, num_comps_choose_from=2)
                 if rect is not None and (rect[-1] * rect[-2] > (self.anomaly_template.shape[0] * self.anomaly_template.shape[1])):
                     anomaly_blob = self.anomaly_transforms(image=self.anomaly_template)['image']
                     scan_slice = increase_brightness(scan_slice, anomaly_blob, cpt, alpha=self.synth_params.get('alpha', 0.9))
                     # print('augmented')
                     label = 1  # has anomaly
             except Exception:
-                print(f'Unable to augment synthetic anomalies for scan {self}. Index - {index}')
+                # print(f'Unable to augment synthetic anomalies for scan {self}. Index - {index}')
+                pass
 
         # prepare masks
         masks = []

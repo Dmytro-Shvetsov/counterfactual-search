@@ -7,8 +7,15 @@ from torchvision import models
 from tqdm import tqdm
 
 
-def build_classifier(n_classes, pretrained=True, restore_ckpt=None, in_channels=1):
-    model = models.resnet18(pretrained=pretrained)  # Returns Defined Densenet model with weights trained on ImageNet
+def build_classifier(kind, n_classes, pretrained=True, restore_ckpt=None, in_channels=1):
+    if kind == 'resnet18':
+        model = models.resnet18(pretrained=pretrained)
+    elif kind == 'resnet34':
+        model = models.resnet34(pretrained=pretrained)
+    elif kind == 'resnet50':
+        model = models.resnet50(pretrained=pretrained)
+    else:
+        raise NotImplementedError(kind)
     in_conv = model.conv1
     # reset input layer to accept grayscale images
     model.conv1 = torch.nn.Conv2d(
@@ -29,7 +36,10 @@ def build_classifier(n_classes, pretrained=True, restore_ckpt=None, in_channels=
     # reset the classification layer
     model.fc = nn.Linear(model.fc.in_features, n_classes)
     if restore_ckpt is not None:
-        model.load_state_dict(torch.load(restore_ckpt))
+        state = torch.load(restore_ckpt)
+        if 'model' in state:
+            state = {k.replace('model.', ''):v for k, v in state['model'].items()}
+        model.load_state_dict(state)
         print(f'Restored the classifier from: {restore_ckpt}')
     model.to('cuda' if torch.cuda.is_available() else 'cpu')
     return model
@@ -51,6 +61,7 @@ def predict_probs(loader: torch.utils.data.DataLoader, model: torch.nn.Module, t
 
 
 def compute_sampler_condition_labels(probs: List[float], explain_class_idx: int, num_bins: int) -> List[int]:
+    """Converts continious probabilities into discrete bin indices distributed on the 0-1 range."""
     pbs = [item[explain_class_idx] for item in probs]
     bin_step = 1 / num_bins
     bins = np.arange(0, 1, bin_step)
@@ -63,7 +74,7 @@ class ClassificationModel(torch.nn.Module):
         super().__init__(*args, **kwargs)
         self.n_classes = opt.n_classes
         self.in_channels = opt.in_channels
-        self.model = build_classifier(opt.n_classes, pretrained=False)
+        self.model = build_classifier(opt.kind, opt.n_classes, pretrained=False)
         self.loss = torch.nn.BCEWithLogitsLoss() if opt.n_classes == 1 else torch.nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
 

@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 
-def CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor) -> torch.Tensor:
+def _CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor) -> torch.Tensor:
     """
     CARL loss from https://arxiv.org/pdf/2101.04230v3.pdf (formula 8).
     This loss implements only the semantic segmentation term for the simplicity.
@@ -23,6 +23,10 @@ def CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor) -> torch.Tens
     l_rec = l_rec.mean(dim=1)
     # average across batches
     return l_rec.mean(dim=0)
+
+
+def CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor) -> torch.Tensor:
+    return _CARL(x, x_prime, masks) + _CARL(x, x_prime, 1 - masks)
 
 
 def kl_divergence(y_pred, y_true, eps=1e-5):

@@ -2,7 +2,8 @@ import albumentations as albu
 import cv2
 
 
-def get_transforms(opt, max_pixel_value=255):
+def get_transforms(opt):
+    max_pixel_value = 1.0 if opt.kind == 'totalsegmentor' else 255
     if opt.imagenet_norm:
         imagenet_mean = 0.485, 0.456, 0.406
         imagenet_std = 0.229, 0.224, 0.225

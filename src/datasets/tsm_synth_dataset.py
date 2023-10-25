@@ -16,13 +16,15 @@ slicing_dims = {
 
 
 class TSMSyntheticDataset(torch.utils.data.Dataset):
-    def __init__(self, scans_dir: Path, labels_dir: Path, **scan_kwargs):
+    def __init__(self, root_dir:str, split:str, **scan_params):
+        scans_dir =  Path(root_dir, split).resolve()
+        labels_dir = Path(root_dir, 'nnUNet_predictions').resolve()
+        assert scans_dir.exists() and labels_dir.exists()
+
         self.scan_paths = sorted(scans_dir.glob('**/*.gz'))
         self.label_paths = [labels_dir / p.name for p in self.scan_paths]
-        self.scans = [CTScan(sp, lp, **scan_kwargs) for sp, lp in zip(self.scan_paths, self.label_paths)]
-
+        self.scans = [CTScan(sp, lp, **scan_params) for sp, lp in zip(self.scan_paths, self.label_paths)]
         assert self.scans, f'No scans found from the directory: {scans_dir}'
-
         self.scans_dataset = ConcatDataset(self.scans)
 
     def get_sampling_labels(self):

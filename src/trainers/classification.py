@@ -3,6 +3,7 @@ from easydict import EasyDict as edict
 from torchmetrics import F1Score, MetricCollection, Precision, Recall
 from tqdm import tqdm
 
+from src.datasets import get_dataloaders
 from src.datasets.augmentations import get_transforms
 from src.datasets.tsm_synth_dataset import get_totalsegmentor_dataloaders
 from src.models.classifier import ClassificationModel
@@ -11,7 +12,7 @@ from src.utils.generic_utils import save_model
 
 
 class ClassificationTrainer(BaseTrainer):
-    def __init__(self, opt: edict, model: ClassificationModel, continue_path: str | None = None) -> None:
+    def __init__(self, opt: edict, model: ClassificationModel, continue_path: str = None) -> None:
         super().__init__(opt, model, continue_path)
 
         self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
@@ -26,8 +27,9 @@ class ClassificationTrainer(BaseTrainer):
         self.val_metrics = self.train_metrics.clone()
 
     def get_dataloaders(self) -> tuple:
-        transforms = get_transforms(self.opt.dataset, max_pixel_value=1.0)
-        return get_totalsegmentor_dataloaders(transforms, self.opt.dataset)
+        transforms = get_transforms(self.opt.dataset)
+        return get_dataloaders(self.opt.dataset, transforms)
+        # return get_totalsegmentor_dataloaders(transforms, self.opt.dataset)
 
     def restore_state(self):
         latest_ckpt = max(self.ckpt_dir.glob('*.pth'), key=lambda p: int(p.name.replace('.pth', '').split('_')[1]))
@@ -46,25 +48,30 @@ class ClassificationTrainer(BaseTrainer):
         self.train_metrics.reset()
         losses = []
 
+        compute_metrics = not self.opt.dataset.get('use_sampler', False)
         epoch_steps = self.opt.get('epoch_steps')
-        with tqdm(enumerate(loader), desc=f'Training epoch: {self.current_epoch}', leave=False, total=epoch_steps or len(loader)) as prog:
+        epoch_length = epoch_steps or len(loader)
+        avg_pos_to_neg_ratio = 0.0
+        with tqdm(enumerate(loader), desc=f'Training epoch: {self.current_epoch}', leave=False, total=epoch_length) as prog:
             for i, batch in prog:
                 if i == epoch_steps:
                     break
                 batch = {k: v.to(self.device) for k, v in batch.items()}
-                print(batch['label'].sum())
-                self.batches_done = self.current_epoch * len(loader) + i
-                sample_step = self.batches_done % self.opt.sample_interval == 0
                 outs = self.model(batch, training=True, global_step=self.batches_done)
+                
+                avg_pos_to_neg_ratio += batch['label'].sum() / batch['label'].shape[0]
+                self.batches_done = self.current_epoch * len(loader) + i
 
-                if not self.opt.dataset.get('use_sampler', False):
+                if compute_metrics:
                     self.train_metrics.update(outs['preds'], batch['label'])
                 losses.append(outs['loss'])
 
+                sample_step = self.batches_done % self.opt.sample_interval == 0
                 if sample_step:
-                    prog.set_postfix_str('training_loss_{:.5f}'.format(outs['loss'].item()), refresh=True)
+                    prog.set_postfix_str('training_loss={:.5f}'.format(outs['loss'].item()), refresh=True)
+        self.logger.info('[Average positives/negatives ratio in batch: %f]' % round(avg_pos_to_neg_ratio.item() / epoch_length, 3))
         epoch_stats = {'loss': torch.mean(torch.tensor(losses))}
-        if not epoch_steps:
+        if compute_metrics:
             epoch_stats.update(self.train_metrics.compute())
         else:
             epoch_stats[f'{self.task.title()}F1Score'] = 0.0
@@ -82,7 +89,7 @@ class ClassificationTrainer(BaseTrainer):
         losses = []
         for _, batch in tqdm(enumerate(loader), desc=f'Validation epoch: {self.current_epoch}', leave=False, total=len(loader)):
             batch = {k: v.to(self.device) for k, v in batch.items()}
-            print('val', batch['label'].sum())
+            # print('val', batch['label'].sum())
             outs = self.model(batch, training=False)
 
             self.val_metrics.update(outs['preds'], batch['label'])
