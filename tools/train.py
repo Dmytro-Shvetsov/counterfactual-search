@@ -1,16 +1,14 @@
 import argparse
 import logging
 import os
-import random
 import shutil
 
-import numpy as np
-import torch
 import yaml
 from easydict import EasyDict as edict
 
 from src.models import build_model
 from src.trainers import build_trainer
+from src.utils.generic_utils import seed_everything
 
 logging.basicConfig(level=logging.INFO)
 
@@ -18,16 +16,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config_path', type=str, required=False, help='Configuration file path to start training from scratch')
 parser.add_argument('-cp', '--continue_path', type=str, required=False, help='Path to the existing training run to continue interrupted training')
 opt = parser.parse_args()
-
-
-def seed_everything(seed: int):
-    random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
 
 
 def main(args):

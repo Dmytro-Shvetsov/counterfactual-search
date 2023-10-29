@@ -8,6 +8,7 @@ from torchsampler import ImbalancedDatasetSampler
 
 from src.datasets.lungs import LungsDataset
 from src.datasets.tsm_synth_dataset import TSMSyntheticDataset
+from src.utils.generic_utils import seed_everything
 
 
 def build_dataset(kind: str, root_dir: Path, split: str, transforms:albu.Compose, **kwargs):
@@ -16,15 +17,14 @@ def build_dataset(kind: str, root_dir: Path, split: str, transforms:albu.Compose
     if kind == 'clf-train-lungs':
         return LungsDataset(root_dir, split, transforms=transforms, explain_classifier=False)
     elif kind == 'totalsegmentor':
-        return TSMSyntheticDataset(root_dir, split, transforms=transforms, **kwargs.get('scan_params', {}))
+        return TSMSyntheticDataset(root_dir, split, transforms=transforms, version=kwargs.get('version', 1), **kwargs.get('scan_params', {}))
     else:
         raise ValueError(f'Unsupported dataset kind provided: {kind}')
 
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
-    numpy.random.seed(worker_seed)
-    random.seed(worker_seed)
+    seed_everything(worker_seed)
 
 
 def get_dataloaders(params, data_transforms, sampler_labels=None, seed=42):
@@ -47,8 +47,8 @@ def get_dataloaders(params, data_transforms, sampler_labels=None, seed=42):
     test_data = build_dataset(split='test', transforms=data_transforms['val'], **params)
     print('Instantiated validation dataset for number of samples:', len(test_data))
 
-    g = torch.Generator()
-    g.manual_seed(seed)
+    rng = torch.Generator()
+    rng.manual_seed(seed)
 
     train_loader = torch.utils.data.DataLoader(
         train_data,
@@ -58,6 +58,7 @@ def get_dataloaders(params, data_transforms, sampler_labels=None, seed=42):
         pin_memory=True,
         num_workers=params.num_workers, 
         worker_init_fn=seed_worker,
+        generator=rng,
     )
     test_loader = torch.utils.data.DataLoader(
         test_data,
@@ -66,6 +67,7 @@ def get_dataloaders(params, data_transforms, sampler_labels=None, seed=42):
         pin_memory=True,
         num_workers=params.num_workers,
         worker_init_fn=seed_worker,
+        generator=rng,
     )
     return train_loader, test_loader
 

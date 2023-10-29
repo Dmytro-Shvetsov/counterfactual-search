@@ -24,7 +24,7 @@ dataset:
     min_max_normalization: True
     slicing_direction: axial
     classes: ['empty', 'kidney']
-    sampling_class: kidney
+    sampling_class: ['kidney']
     synth_params:
       p: 0.8
       size: 8

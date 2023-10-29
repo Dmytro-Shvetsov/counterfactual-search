@@ -73,7 +73,8 @@ class CTScan(torch.utils.data.Dataset):
         min_max_normalization: bool = True,
         slicing_direction: str = 'axial',
         classes: list[str] = ('empty', 'kidney'),
-        sampling_class: str = 'kidney',
+        sampling_class: str = None,
+        classify_labels: str = None,
         filter_class_slices: str = None,
         synth_params: dict = None,
         load_masks: bool = False,
@@ -90,22 +91,26 @@ class CTScan(torch.utils.data.Dataset):
         assert self.scan.shape == self.labels.shape, 'Shapes of provided scan and labels volumes do not match'
 
         self.sampling_class = sampling_class
+        
+        self.classify_labels = classify_labels
         self.filter_class_slices = filter_class_slices
         self.classes = classes  # TODO: check out if nnUnet has tumor label as 2 or 3
         self.class_to_idx = {c: i for i, c in enumerate(self.classes)}
 
         self.synth_params = synth_params
-        self.anomaly_template = gaussian_blob(size=synth_params['size'], sigma=synth_params['sigma']) if synth_params else None
-        self.anomaly_transforms = albu.Compose(
-            [
-                albu.RandomScale(scale_limit=(-0.5, 0.1), p=1.0),
-                # albu.ElasticTransform(p=1.0, sigma=10, alpha_affine=20, border_mode=cv2.BORDER_CONSTANT),
-                albu.GridDistortion(num_steps=1, distort_limit=(-0.4, 0.3), border_mode=cv2.BORDER_CONSTANT, value=0),
-                albu.Rotate(limit=(-90, 90), border_mode=cv2.BORDER_CONSTANT),
-            ]
-        )
+        self.anomaly_template, self.anomaly_transforms = None, None
+        if synth_params:
+            self.anomaly_template = gaussian_blob(size=synth_params['size'], sigma=synth_params['sigma'])
+            self.anomaly_transforms = albu.Compose(
+                [
+                    albu.RandomScale(scale_limit=(-0.5, 0.1), p=1.0),
+                    # albu.ElasticTransform(p=1.0, sigma=10, alpha_affine=20, border_mode=cv2.BORDER_CONSTANT),
+                    albu.GridDistortion(num_steps=1, distort_limit=(-0.4, 0.3), border_mode=cv2.BORDER_CONSTANT, value=0),
+                    albu.Rotate(limit=(-90, 90), border_mode=cv2.BORDER_CONSTANT),
+                ]
+            )
         self.load_masks = load_masks
-        
+
         self.slice_indices = None
         if self.filter_class_slices is not None:
             self.slice_indices = self.get_slice_indices(filter_class_slices)
@@ -113,7 +118,7 @@ class CTScan(torch.utils.data.Dataset):
     def load_volume(self, scan_path: Path) -> np.ndarray:
         mmap_path = scan_path.with_name(scan_path.stem + '.npy')
         if scan_path.suffix == '.gz' and not mmap_path.exists():
-            ct_scan = nib.load(scan_path)  # loads the file. this usually comes with lots of metadata
+            ct_scan = nib.load(scan_path)
             vol = ct_scan.get_fdata()
             vol_mmap = open_memmap(mmap_path, 'w+', np.int32, shape=vol.shape)
             vol_mmap[:] = vol[:].astype(np.int32)
@@ -123,16 +128,32 @@ class CTScan(torch.utils.data.Dataset):
         return np.load(mmap_path, mmap_mode='r')
 
     def get_sampling_labels(self):
-        class_id = self.class_to_idx[self.sampling_class]
+        assert self.sampling_class, f'Unable to determine sampling labels as sampling class is not set'
+        filter_mask = None
+        for c in self.sampling_class:
+            if filter_mask is None:
+                filter_mask = (self.labels == self.class_to_idx[c])
+            else:
+                filter_mask |= (self.labels == self.class_to_idx[c])
+        
         dims = tuple(i for i in range(len(self.scan.shape)) if i != self.slicing_dim)
-        return (self.labels == class_id).any(axis=dims).astype(np.uint8)
+        sampling_labels = filter_mask.any(axis=dims).astype(np.uint8)
+        if self.slice_indices is not None:
+            sampling_labels = sampling_labels[self.slice_indices]
+        return sampling_labels
 
-    def get_slice_indices(self, class_name):
-        class_id = self.class_to_idx[self.sampling_class]
+    def get_slice_indices(self, filter_classes:list[str]) -> list[int]:
         dims = tuple(i for i in range(len(self.scan.shape)) if i != self.slicing_dim)
-        indices = np.nonzero((self.labels == class_id).any(axis=dims))[0]
+        filter_mask = None
+        for c in filter_classes:
+            if filter_mask is None:
+                filter_mask = (self.labels == self.class_to_idx[c])
+            else:
+                filter_mask |= (self.labels == self.class_to_idx[c])
+
+        indices = np.nonzero(filter_mask.any(axis=dims))[0]
         if indices.shape[0] == 0:
-            print(f'{self} has no slices for class: {class_name}')
+            print(f'{self} has no slices for classes: {filter_classes}')
         return indices
 
     def _get_slicer(self, index: int) -> np.ndarray:
@@ -167,40 +188,40 @@ class CTScan(torch.utils.data.Dataset):
             # scan_slice = (scan_slice - scan_slice.mean()) / scan_slice.std()
             raise NotImplementedError
 
-        target_mask = (label_slice == self.class_to_idx[self.sampling_class]).astype(np.uint8)
+        # prepare masks
+        masks = []
+        if self.load_masks:
+            if len(self.classes) == 2:
+                # binary setting
+                masks = [(label_slice == self.class_to_idx[self.classes[-1]]).astype(np.uint8)]
+            else:
+                # TODO: fix reconstruction loss
+                # multiclass/multilabel setting
+                masks = [(label_slice == self.class_to_idx[c]).astype(np.uint8) for c in self.classes]
 
+        # label determines whether an anomaly is present in the slice or not
         label = 0  # no anomaly by default
-
-        augment_anomaly = (
-            self.synth_params
-            and np.random.rand() < self.synth_params['p']
-            and target_mask.sum() > (self.anomaly_template.shape[0] * self.anomaly_template.shape[1])
-        )
-
-        if augment_anomaly:
+        if self.synth_params and np.random.rand() < self.synth_params['p']:
+            target_mask = (label_slice == self.class_to_idx[self.sampling_class]).astype(np.uint8)
+            if target_mask.sum() < (self.anomaly_template.shape[0] * self.anomaly_template.shape[1]):
+                raise ValueError('A mask is too small to inject an annomaly of a configured size.')
             try:
                 # randomly sample a point in one of the kidneys
                 cpt, rect = sample_random_mask_point(target_mask, num_comps_choose_from=2)
                 if rect is not None and (rect[-1] * rect[-2] > (self.anomaly_template.shape[0] * self.anomaly_template.shape[1])):
                     anomaly_blob = self.anomaly_transforms(image=self.anomaly_template)['image']
                     scan_slice = increase_brightness(scan_slice, anomaly_blob, cpt, alpha=self.synth_params.get('alpha', 0.9))
-                    # print('augmented')
-                    label = 1  # has anomaly
+                    label = 1 # has anomaly
             except Exception:
                 # print(f'Unable to augment synthetic anomalies for scan {self}. Index - {index}')
                 pass
-
-        # prepare masks
-        masks = []
-
-        if self.load_masks:
-            if len(self.classes) == 2:
-                # binary setting
-                masks = [(label_slice == self.class_to_idx[self.classes[-1]]).astype(np.uint8)]
+        else:
+            assert self.classify_labels is not None, 'Unable to determine the anomaly label for the slice. Set synthetic augmentation of classify_labels parameters'
+            # if any of the masks from the classify_labels is not empty, the slice's label is 1
+            if masks:
+                label = int(any(masks[self.class_to_idx[c]].any() for c in self.classify_labels))
             else:
-                # multiclass/multilabel setting
-                return NotImplemented
-                masks = [(label_slice == self.class_to_idx[cname]).astype(np.uint8) for cname in self.classes]
+                label = int(any((label_slice == self.class_to_idx[c]).any() for c in self.classify_labels))
 
         sample = {'image': scan_slice, 'masks': masks}
         if self.transforms:
@@ -208,7 +229,6 @@ class CTScan(torch.utils.data.Dataset):
 
         sample['image'] = torch.from_numpy(sample['image'][np.newaxis])
         sample['masks'] = torch.from_numpy(np.stack(sample['masks'])) if self.load_masks else torch.tensor([])
-        # sample['label'] = masks[0].any().astype(np.uint8)  # FIXME
         sample['label'] = torch.tensor(label).long()
         return sample
 

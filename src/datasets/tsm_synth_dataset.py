@@ -16,19 +16,27 @@ slicing_dims = {
 
 
 class TSMSyntheticDataset(torch.utils.data.Dataset):
-    def __init__(self, root_dir:str, split:str, **scan_params):
-        scans_dir =  Path(root_dir, split).resolve()
-        labels_dir = Path(root_dir, 'nnUNet_predictions').resolve()
-        assert scans_dir.exists() and labels_dir.exists()
+    def __init__(self, root_dir:str, split:str, version:int=1, **scan_params):
+        scans_dir = Path(root_dir, split).resolve()
+        if version == 1:
+            labels_dir = Path(root_dir, 'nnUNet_predictions').resolve()
+            assert scans_dir.exists() and labels_dir.exists()
+            self.scan_paths = sorted(scans_dir.glob('**/*.nii.gz'))
+            self.label_paths = [labels_dir / p.name for p in self.scan_paths]
+        elif version == 2:
+            self.label_paths = sorted(scans_dir.glob('**/*_label.nii.gz'))
+            self.scan_paths = [p.parent / p.name.replace('_label', '') for p in self.label_paths]
+        else:
+            raise ValueError(f'Invalid totalsegmentor version provided.')
 
-        self.scan_paths = sorted(scans_dir.glob('**/*.gz'))
-        self.label_paths = [labels_dir / p.name for p in self.scan_paths]
         self.scans = [CTScan(sp, lp, **scan_params) for sp, lp in zip(self.scan_paths, self.label_paths)]
         assert self.scans, f'No scans found from the directory: {scans_dir}'
         self.scans_dataset = ConcatDataset(self.scans)
 
     def get_sampling_labels(self):
-        return list(chain.from_iterable(scan.get_sampling_labels() for scan in self.scans))
+        lbs = list(chain.from_iterable(scan.get_sampling_labels() for scan in self.scans))
+        print(f'Number of slices with positive sampling label:', sum(lbs))
+        return lbs
 
     def __len__(self):
         return len(self.scans_dataset)

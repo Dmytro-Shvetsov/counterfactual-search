@@ -24,7 +24,7 @@ dataset:
     min_max_normalization: True
     slicing_direction: axial
     classes: ['empty', 'kidney']
-    filter_class_slices: 'kidney' # fetch only kidney slices in loaders
+    filter_class_slices: ['kidney'] # fetch only kidney slices in loaders
     synth_params:
       p: 0.5
       size: 8

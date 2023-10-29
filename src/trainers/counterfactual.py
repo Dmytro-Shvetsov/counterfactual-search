@@ -36,9 +36,9 @@ class CounterfactualTrainer(BaseTrainer):
     def save_state(self) -> str:
         return save_model(self.opt, self.model, (self.model.optimizer_G, self.model.optimizer_D), self.batches_done, self.current_epoch, self.ckpt_dir)
 
-    def get_dataloaders(self, ret_counterfactual_labels:bool=False) -> tuple:
+    def get_dataloaders(self, ret_cf_labels:bool=False, skip_cf_sampler=False) -> tuple:
         transforms = get_transforms(self.opt.dataset)
-        if self.opt.task_name == 'counterfactual': # NB
+        if self.opt.task_name == 'counterfactual' and not skip_cf_sampler: # NB
             # compute sampler labels to create batches with uniformly distributed labels
             params = edict(deepcopy(self.opt.dataset), use_sampler=False, shuffle_test=False)
             # if params.get('scan_params', {}).get('synth_params'):
@@ -53,7 +53,7 @@ class CounterfactualTrainer(BaseTrainer):
         else:
             sampler_labels = None
         loaders = get_dataloaders(self.opt.dataset, transforms, sampler_labels=sampler_labels)
-        return (loaders, sampler_labels) if ret_counterfactual_labels else loaders
+        return (loaders, sampler_labels) if ret_cf_labels else loaders
 
     def training_epoch(self, loader: torch.utils.data.DataLoader) -> None:
         self.model.train()
@@ -147,7 +147,9 @@ class CounterfactualTrainer(BaseTrainer):
             y_pred.extend(gen_f_x_discrete.cpu().squeeze(1).numpy())
             posterior_pred.extend(gen_f_x.cpu().squeeze(1).numpy())
 
-            real_imgs, gen_imgs = real_imgs[0], gen_imgs[0]
+            # take first images and denorm values from [-1; 1] to [0, 1] range
+            real_imgs, gen_imgs = (real_imgs[0] + 1) / 2, (gen_imgs[0] + 1) / 2
+
             # difference map
             diff = (real_imgs - gen_imgs).abs()
             vis = torch.stack((real_imgs, gen_imgs, diff), dim=0)
@@ -155,9 +157,10 @@ class CounterfactualTrainer(BaseTrainer):
                 vis.data,
                 out_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.jpg' % (self.current_epoch, i, labels[0], real_f_x_desired_discrete[0][0], gen_f_x_discrete[0][0])),
                 nrow=1,
-                normalize=True,
+                normalize=False,
+                # value_range=(-1, 1),
             )
-
+        self.logger.info(f'Finished evaluating counterfactual results for epoch: {self.current_epoch}')
         y_true, y_pred = np.array(y_true), np.array(y_pred)
         cacc = np.mean(y_true == y_pred)
         self.logger.info(f'Counterfactual accuracy = {cacc} (num_samples={len(y_pred)})')
