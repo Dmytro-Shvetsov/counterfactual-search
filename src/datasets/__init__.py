@@ -1,25 +1,53 @@
 import random
+from itertools import chain
 from pathlib import Path
+from pprint import pprint
 
 import albumentations as albu
 import numpy
 import torch
 from torchsampler import ImbalancedDatasetSampler
 
+from src.datasets.kits_dataset import KITSDataset
 from src.datasets.lungs import LungsDataset
 from src.datasets.tsm_synth_dataset import TSMSyntheticDataset
 from src.utils.generic_utils import seed_everything
 
 
 def build_dataset(kind: str, root_dir: Path, split: str, transforms:albu.Compose, **kwargs):
+    scan_params = kwargs.pop('scan_params', {})
     if kind == 'clf-explain-lungs':
         return LungsDataset(root_dir, split, transforms=transforms, explain_classifier=True)
     if kind == 'clf-train-lungs':
         return LungsDataset(root_dir, split, transforms=transforms, explain_classifier=False)
     elif kind == 'totalsegmentor':
-        return TSMSyntheticDataset(root_dir, split, transforms=transforms, version=kwargs.get('version', 1), **kwargs.get('scan_params', {}))
+        return TSMSyntheticDataset(root_dir, split, transforms=transforms, **scan_params, **kwargs)
+    elif kind == 'kits':
+        return KITSDataset(root_dir, split, transforms=transforms, **scan_params, **kwargs)
+    elif kind == 'merged':
+        return MergedDataset(split, transforms, kwargs['datasets'])
     else:
         raise ValueError(f'Unsupported dataset kind provided: {kind}')
+
+
+class MergedDataset(torch.utils.data.Dataset):
+    def __init__(self, split:str, transforms:albu.Compose, dataset_cfgs:list[dict]):
+        assert dataset_cfgs, 'No datasets configured'
+        # pprint(dataset_cfgs)
+        self.datasets = [build_dataset(split=split, transforms=transforms, **cfg) for cfg in dataset_cfgs]
+        self.dataset = torch.utils.data.ConcatDataset(self.datasets)
+        # self.classes = self.datasets[0].scans[0].classes
+
+    def get_sampling_labels(self):
+        lbs = list(chain.from_iterable(dataset.get_sampling_labels() for dataset in self.datasets))
+        print(f'[Merged dataset] Number of slices with positive sampling label:', sum(lbs))
+        return lbs
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        return self.dataset[index]
 
 
 def seed_worker(worker_id):
@@ -30,7 +58,7 @@ def seed_worker(worker_id):
 def get_dataloaders(params, data_transforms, sampler_labels=None, seed=42):
     train_data = build_dataset(split='train', transforms=data_transforms['train'], **params)
 
-    sampler_labels_cache = Path(params.root_dir, 'sampler_labels.npy')
+    sampler_labels_cache = Path(params.root_dir or '', 'sampler_labels.npy')
     use_sampler = params.get('use_sampler', True)
     if use_sampler and sampler_labels is None:
         print('Using imbalanced sampler for training data loader.')

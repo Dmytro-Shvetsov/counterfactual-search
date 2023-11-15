@@ -2,6 +2,8 @@ torch==2.0.0+cu117
 torchsampler @ git+https://github.com/ufoym/imbalanced-dataset-sampler.git@01cb129677348824a20905baea112d501e3bf642
 torchvision==0.15.1+cu117
 torchmetrics==1.1.2
+segmentation_models_pytorch==0.3.3
+pytorch-toolbelt==0.6.2
 
 # reading 3D scans
 nibabel==5.1.0
@@ -9,7 +11,6 @@ nibabel==5.1.0
 matplotlib==3.7.1
 albumentations==1.3.0
 opencv-python==4.7.0.72
-pytorch-toolbelt==0.6.2
 jupyter
 notebook==6.5.4
 traitlets<5.10

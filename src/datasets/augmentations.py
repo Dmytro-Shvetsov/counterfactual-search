@@ -3,11 +3,12 @@ import cv2
 
 
 def get_transforms(opt):
-    max_pixel_value = 1.0 if opt.kind == 'totalsegmentor' else 255
+    max_pixel_value = 255 if opt.kind.endswith('lungs') else 1.0
     if opt.imagenet_norm:
         imagenet_mean = 0.485, 0.456, 0.406
         imagenet_std = 0.229, 0.224, 0.225
-        grayscale_coefs = 0.2989, 0.587, 0.114
+        # grayscale_coefs = 0.2989, 0.587, 0.114
+        grayscale_coefs = 1, 1, 1
 
         grayscale_mean = sum(m * c for m, c in zip(imagenet_mean, grayscale_coefs))
         grayscale_std = sum(m * c for m, c in zip(imagenet_std, grayscale_coefs))

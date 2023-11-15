@@ -7,18 +7,9 @@ from torchvision import models
 from tqdm import tqdm
 
 
-def build_classifier(kind, n_classes, pretrained=True, restore_ckpt=None, in_channels=1):
-    if kind == 'resnet18':
-        model = models.resnet18(pretrained=pretrained)
-    elif kind == 'resnet34':
-        model = models.resnet34(pretrained=pretrained)
-    elif kind == 'resnet50':
-        model = models.resnet50(pretrained=pretrained)
-    else:
-        raise NotImplementedError(kind)
-    in_conv = model.conv1
+def _rgb_to_gray_conv(in_conv:torch.nn.Conv2d, in_channels:int) -> torch.nn.Conv2d:
     # reset input layer to accept grayscale images
-    model.conv1 = torch.nn.Conv2d(
+    conv1 = torch.nn.Conv2d(
         in_channels,
         in_conv.out_channels,
         in_conv.kernel_size,
@@ -26,19 +17,53 @@ def build_classifier(kind, n_classes, pretrained=True, restore_ckpt=None, in_cha
         in_conv.padding,
         in_conv.dilation,
         in_conv.groups,
-        in_conv.bias,
+        in_conv.bias is not None,
         in_conv.padding_mode,
     )
-    model.conv1.weight.data.copy_(in_conv.weight.mean(dim=1, keepdims=True))
+    conv1.weight.data.copy_(in_conv.weight.sum(dim=1, keepdims=True))
     if in_conv.bias is not None:
-        model.conv1.bias.data.copy_(in_conv.bias)
+        conv1.bias.data.copy_(in_conv.bias)
+    return conv1
 
+
+def _reinit_resnet(model: models.ResNet, in_channels:int, n_classes:int) -> torch.nn.Module:
+    # reset input layer to accept grayscale images
+    model.conv1 = _rgb_to_gray_conv(model.conv1, in_channels)
     # reset the classification layer
     model.fc = nn.Linear(model.fc.in_features, n_classes)
+    return model
+
+# models.vit_b_16
+def _reinit_vit(model: models.VisionTransformer, in_channels:int, n_classes:int) -> torch.nn.Module:
+    model.conv_proj = _rgb_to_gray_conv(model.conv_proj, in_channels)
+    model.heads[-1] = nn.Linear(model.heads[-1].in_features, n_classes)
+    return model
+
+
+def _reinit_effnet_v2(model: models.EfficientNet, in_channels:int, n_classes:int) -> torch.nn.Module:
+    # models.efficientnet_v2
+    model.features[0][0] = _rgb_to_gray_conv(model.features[0][0], in_channels)
+    model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, n_classes)
+    return model
+
+
+def build_classifier(kind, n_classes, pretrained=True, restore_ckpt=None, in_channels=1, image_size=224):
+    if kind.startswith('resnet'):
+        model = getattr(models, kind)(pretrained=pretrained)
+        _reinit_resnet(model, in_channels, n_classes)
+    elif kind.startswith('vit'):
+        model = getattr(models, kind)(pretrained=pretrained, image_size=image_size[0])
+        _reinit_vit(model, in_channels, n_classes)
+    elif kind.startswith('efficientnet_v2'):
+        model = getattr(models, kind)(pretrained=pretrained)
+        _reinit_effnet_v2(model, in_channels, n_classes)
+    else:
+        raise NotImplementedError(kind)
+
     if restore_ckpt is not None:
         state = torch.load(restore_ckpt)
         if 'model' in state:
-            state = {k.replace('model.', ''):v for k, v in state['model'].items()}
+            state = {k.replace('model.', ''): v for k, v in state['model'].items()}
         model.load_state_dict(state)
         print(f'Restored the classifier from: {restore_ckpt}')
     model.to('cuda' if torch.cuda.is_available() else 'cpu')
@@ -74,13 +99,11 @@ class ClassificationModel(torch.nn.Module):
         super().__init__(*args, **kwargs)
         self.n_classes = opt.n_classes
         self.in_channels = opt.in_channels
-        self.model = build_classifier(opt.kind, opt.n_classes, pretrained=False)
+        self.model = build_classifier(opt.kind, opt.n_classes, pretrained=opt.pretrained, image_size=img_size)
         self.loss = torch.nn.BCEWithLogitsLoss() if opt.n_classes == 1 else torch.nn.CrossEntropyLoss()
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2), weight_decay=opt.get('weight_decay', 0.0))
 
     def forward(self, batch, training=False, *args, **kwargs):
-        # batch_size = imgs.shape[0]
-
         inputs, labels = batch['image'], batch['label']
 
         if training:

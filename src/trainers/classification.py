@@ -5,7 +5,8 @@ from tqdm import tqdm
 
 from src.datasets import get_dataloaders
 from src.datasets.augmentations import get_transforms
-from src.datasets.tsm_synth_dataset import get_totalsegmentor_dataloaders
+
+# from src.datasets.tsm_synth_dataset import get_totalsegmentor_dataloaders
 from src.models.classifier import ClassificationModel
 from src.trainers.trainer import BaseTrainer
 from src.utils.generic_utils import save_model
@@ -48,7 +49,6 @@ class ClassificationTrainer(BaseTrainer):
         self.train_metrics.reset()
         losses = []
 
-        compute_metrics = not self.opt.dataset.get('use_sampler', False)
         epoch_steps = self.opt.get('epoch_steps')
         epoch_length = epoch_steps or len(loader)
         avg_pos_to_neg_ratio = 0.0
@@ -56,25 +56,20 @@ class ClassificationTrainer(BaseTrainer):
             for i, batch in prog:
                 if i == epoch_steps:
                     break
-                batch = {k: v.to(self.device) for k, v in batch.items()}
+                batch = {k: batch[k].to(self.device) for k in {'image', 'masks', 'label'}}
                 outs = self.model(batch, training=True, global_step=self.batches_done)
                 
                 avg_pos_to_neg_ratio += batch['label'].sum() / batch['label'].shape[0]
                 self.batches_done = self.current_epoch * len(loader) + i
 
-                if compute_metrics:
-                    self.train_metrics.update(outs['preds'], batch['label'])
+                self.train_metrics.update(outs['preds'], batch['label'])
                 losses.append(outs['loss'])
 
                 sample_step = self.batches_done % self.opt.sample_interval == 0
                 if sample_step:
                     prog.set_postfix_str('training_loss={:.5f}'.format(outs['loss'].item()), refresh=True)
         self.logger.info('[Average positives/negatives ratio in batch: %f]' % round(avg_pos_to_neg_ratio.item() / epoch_length, 3))
-        epoch_stats = {'loss': torch.mean(torch.tensor(losses))}
-        if compute_metrics:
-            epoch_stats.update(self.train_metrics.compute())
-        else:
-            epoch_stats[f'{self.task.title()}F1Score'] = 0.0
+        epoch_stats = {'loss': torch.mean(torch.tensor(losses)), **self.train_metrics.compute()}
         self.logger.log(epoch_stats, self.current_epoch, 'train')
         self.logger.info(
             '[Finished training epoch %d/%d] [Epoch loss: %f] [Epoch F1 score: %f]'
@@ -88,7 +83,7 @@ class ClassificationTrainer(BaseTrainer):
         self.val_metrics.reset()
         losses = []
         for _, batch in tqdm(enumerate(loader), desc=f'Validation epoch: {self.current_epoch}', leave=False, total=len(loader)):
-            batch = {k: v.to(self.device) for k, v in batch.items()}
+            batch = {k: batch[k].to(self.device) for k in {'image', 'masks', 'label'}}
             # print('val', batch['label'].sum())
             outs = self.model(batch, training=False)
 

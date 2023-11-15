@@ -6,7 +6,7 @@ sample_interval: 30
 n_epochs: 1000
 
 logging_dir: ./training_logs/classification
-experiment_name: tsm_synth_r18_kdn-only
+experiment_name: tsm_synth-xl_r18_kdn-only
 checkpoint_freq: 10
 
 dataset:
@@ -16,7 +16,7 @@ dataset:
   img_size: [256, 256] # hxw
   use_sampler: False
   reset_sampler: False
-  num_workers: 16
+  num_workers: 28
   imagenet_norm: False # mean=[0.5], std=[0.5]
   augs: [] # only resize and norm
 
