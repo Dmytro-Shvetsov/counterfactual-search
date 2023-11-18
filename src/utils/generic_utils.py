@@ -1,13 +1,13 @@
 import datetime
 import logging
 import os
+import random
 import subprocess
 from pathlib import Path
 from typing import List, Tuple
-import random
 
-import torch
 import numpy as np
+import torch
 
 
 def seed_everything(seed: int):
@@ -34,7 +34,7 @@ def get_experiment_folder_path(root_path, model_name, experiment_name='exp'):
     date_str = datetime.datetime.now().strftime("%B-%d-%Y_%I+%M%p")
     commit_hash = get_commit_hash()
     output_folder = os.path.join(root_path, model_name + "-" + date_str + "-" + commit_hash + '-' + experiment_name)
-    os.makedirs(output_folder)
+    os.makedirs(output_folder, exist_ok=True)
     return output_folder
 
 

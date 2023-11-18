@@ -3,7 +3,8 @@ import torch
 from matplotlib import pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-DEFAULT_COLOR = (50, 168, 82)
+# orange
+DEFAULT_COLOR = (255, 156, 18)
 
 CLASS_COLORS = {
     # red
@@ -19,6 +20,9 @@ CLASS_COLORS = {
     
     # purple
     'tumor': (173, 66, 245),
+    
+    # blue
+    'gaussian': (18, 140, 255),
 }
 
 def overlay_masks(img:np.ndarray, masks:np.ndarray, classes:list[str], alpha:float=0.7, agg_order:list[int]=None, onehot_masks=True):
@@ -50,9 +54,7 @@ def visualize_seg_predictions(
 
     fig = plt.figure(figsize=(12, 7), constrained_layout=True)
     gs = GridSpec(ncols=3, nrows=num_vis, figure=fig, wspace=0.01, hspace=0.01)
-    # fig, axes = plt.subplots(nrows=num_vis, ncols=3, figsize=(12, 7), sharex=True, sharey=True)
-    
-    # img = np.stack([img.astype(np.uint8)]*3, -1)
+
     inds = np.random.randint(0, batch_img.shape[0] - 1, num_vis)
     
     is_multiclass = batch_masks_pred.shape[1] > 1
@@ -74,32 +76,17 @@ def visualize_seg_predictions(
         ax1.imshow(img)
         ax1.set_axis_off()
         ax1.set_title('Input Slice')
-        # ax1.set_xticklabels([])
-        # ax1.set_yticklabels([])
-        # ax1.set_aspect('equal')
-        
+
         vis_gt = overlay_masks(img, gt_masks.cpu().numpy(), classes, alpha, onehot_masks=True, agg_order=agg_order)
         ax2.imshow(vis_gt)
         ax2.set_axis_off()
         ax2.set_title(f'y_true={gt_label}')
-        # ax2.set_xticklabels([])
-        # ax2.set_yticklabels([])
-        # ax2.set_aspect('equal')
-        
+
         vis_pred = overlay_masks(img, pred_masks.cpu().numpy(), classes, alpha, onehot_masks=not is_multiclass, agg_order=agg_order)
         ax3.imshow(vis_pred)
         ax3.set_axis_off()
         ax3.set_title(f'y_pred={pred_label}')
-        # ax3.set_xticklabels([])
-        # ax3.set_yticklabels([])
-        # ax3.set_aspect('equal')
-    
-    # fig.subplots_adjust(
-    #     wspace=0.01, 
-    #     hspace=0.01,
-    # )
-    # fig.tight_layout()
-    
+ 
     if out_file_path:
         plt.savefig(out_file_path)
         plt.close()

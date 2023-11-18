@@ -16,6 +16,8 @@ def _CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor) -> torch.Ten
         torch.Tensor: calculated loss
     """
     B = x.shape[0]
+    # print(masks.shape, x_prime.shape, x.shape)
+    # exit()
     x, x_prime, masks = x.view(B, -1), x_prime.view(B, -1), masks.view(B, -1).bool()
     l_rec = F.l1_loss(x, x_prime, reduction='none')
     l_rec *= masks
@@ -26,7 +28,9 @@ def _CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor) -> torch.Ten
 
 
 def CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor) -> torch.Tensor:
-    return _CARL(x, x_prime, masks) + _CARL(x, x_prime, 1 - masks)
+    if masks.shape[1] > 2:
+        masks = masks[:, :2]
+    return sum(_CARL(x, x_prime, masks[:, i]) for i in range(masks.shape[1]))
 
 
 def kl_divergence(y_pred, y_true, eps=1e-5):

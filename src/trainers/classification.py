@@ -82,15 +82,18 @@ class ClassificationTrainer(BaseTrainer):
         self.model.eval()
         self.val_metrics.reset()
         losses = []
+        num_pos = 0
         for _, batch in tqdm(enumerate(loader), desc=f'Validation epoch: {self.current_epoch}', leave=False, total=len(loader)):
             batch = {k: batch[k].to(self.device) for k in {'image', 'masks', 'label'}}
             # print('val', batch['label'].sum())
+            num_pos += batch['label'].sum()
             outs = self.model(batch, training=False)
-
+            
             self.val_metrics.update(outs['preds'], batch['label'])
             losses.append(outs['loss'])
         epoch_stats = {'loss': torch.mean(torch.tensor(losses)), **self.val_metrics.compute()}
         self.logger.log(epoch_stats, self.current_epoch, 'val')
+        self.logger.info('[Number of positive samples in validation: %d]' % num_pos.item())
         self.logger.info(
             '[Finished validation epoch %d/%d] [Epoch loss: %f] [Epoch F1 score: %f]'
             % (self.current_epoch, self.opt.n_epochs, epoch_stats['loss'], epoch_stats[f'{self.task.title()}F1Score'])

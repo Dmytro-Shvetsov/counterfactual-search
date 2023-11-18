@@ -50,12 +50,23 @@ def paste_image(src, target, center_pt, blend_fn=None):
 def increase_brightness(target, brightness_map, center_pt, alpha=0.9, max_value=1.0):
     (cx, cy), (h, w) = center_pt, brightness_map.shape[:2]
     midh, midw = h / 2, w / 2
-    top, bottom, left, right = cy - int(midh), cy + ceil(midh), cx - int(midw), cx + ceil(midw)
+    top, bottom = max(cy - int(midh), 0), min(cy + ceil(midh), target.shape[0])
+    left, right = max(cx - int(midw), 0), min(cx + ceil(midw), target.shape[1])
 
     brightness_map = brightness_map.astype(np.float32) * alpha
     crop = target[top:bottom, left:right].astype(np.float32)
     crop += brightness_map
     target[top:bottom, left:right] = np.clip(crop, 0, max_value)
+    return target
+
+
+def paste_mask(target, mask, center_pt):
+    (cx, cy), (h, w) = center_pt, mask.shape[:2]
+    midh, midw = h / 2, w / 2
+    top, bottom = max(cy - int(midh), 0), min(cy + ceil(midh), target.shape[0])
+    left, right = max(cx - int(midw), 0), min(cx + ceil(midw), target.shape[1])
+
+    target[top:bottom, left:right] = np.maximum(target[top:bottom, left:right], mask)
     return target
 
 
@@ -110,14 +121,17 @@ class CTScan(torch.utils.data.Dataset):
         self.anomaly_template, self.anomaly_transforms = None, None
         if synth_params:
             self.anomaly_template = gaussian_blob(size=synth_params['size'], sigma=synth_params['sigma'])
+            self.anomaly_template_mask = (self.anomaly_template > synth_params.get('mask_thresh', 0.7)).astype(np.uint8)
             self.anomaly_transforms = albu.Compose(
                 [
-                    albu.RandomScale(scale_limit=(-0.5, 0.1), p=1.0),
+                    albu.RandomScale(scale_limit=(-0.25, 0), p=1.0),
                     # albu.ElasticTransform(p=1.0, sigma=10, alpha_affine=20, border_mode=cv2.BORDER_CONSTANT),
-                    albu.GridDistortion(num_steps=1, distort_limit=(-0.4, 0.3), border_mode=cv2.BORDER_CONSTANT, value=0),
+                    albu.GridDistortion(num_steps=1, distort_limit=(-0.2, 0.2), border_mode=cv2.BORDER_CONSTANT, value=0),
                     albu.Rotate(limit=(-90, 90), border_mode=cv2.BORDER_CONSTANT),
                 ]
             )
+            self.classes = self.classes.copy() + ['gaussian']
+            self.class_to_idx['gaussian'] = len(self.classes) - 1
         self.load_masks = load_masks
 
         self.slice_indices = None
@@ -223,32 +237,39 @@ class CTScan(torch.utils.data.Dataset):
         # prepare masks
         masks = []
         if self.load_masks:
-            # if len(self.classes) == 2:
-            #     # binary setting
-            #     masks = [(label_slice == self.class_to_idx[self.classes[-1]]).astype(np.uint8)]
-            # else:
             # TODO: fix reconstruction loss
             # multiclass/multilabel setting
             classes = self.load_masks if isinstance(self.load_masks, list) else self.classes
-            masks = [(label_slice == self.class_to_idx[c]).astype(np.uint8) if c != 'zero_mask' else np.zeros_like(label_slice, np.uint8) for c in classes]
+            masks = [(label_slice == self.class_to_idx[c]).astype(np.uint8) if c != 'zero_mask' else np.zeros_like(label_slice, np.uint8) 
+                        for c in classes if c != 'gaussian']
             # print(classes, self.load_masks, len(masks))
 
         # label determines whether an anomaly is present in the slice or not
         label = 0  # no anomaly by default
-        if self.synth_params and np.random.rand() < self.synth_params['p']:
-            target_mask = (label_slice == self.class_to_idx[self.sampling_class]).astype(np.uint8)
-            if target_mask.sum() < (self.anomaly_template.shape[0] * self.anomaly_template.shape[1]):
-                raise ValueError('A mask is too small to inject an annomaly of a configured size.')
-            try:
-                # randomly sample a point in one of the kidneys
-                cpt, rect = sample_random_mask_point(target_mask, num_comps_choose_from=2)
-                if rect is not None and (rect[-1] * rect[-2] > (self.anomaly_template.shape[0] * self.anomaly_template.shape[1])):
-                    anomaly_blob = self.anomaly_transforms(image=self.anomaly_template)['image']
-                    scan_slice = increase_brightness(scan_slice, anomaly_blob, cpt, alpha=self.synth_params.get('alpha', 0.9))
-                    label = 1 # has anomaly
-            except Exception:
-                # print(f'Unable to augment synthetic anomalies for scan {self}. Index - {index}')
-                pass
+        if self.synth_params:
+            assert len(self.classes) == 3
+            target_mask = masks[-1] if masks else label_slice.astype(np.uint8)
+            anomaly_mask = np.zeros_like(masks[-1]) if masks else None
+            if np.random.rand() < self.synth_params['p']:
+                # if :
+                    # raise ValueError('A mask is too small to inject an annomaly of a configured size.')
+                try:
+                    # randomly sample a point in one of the kidneys
+                    cpt, rect = sample_random_mask_point(target_mask, num_comps_choose_from=2)
+                    if rect is not None and (rect[-1] * rect[-2] > (self.anomaly_template.shape[0] * self.anomaly_template.shape[1])):
+                        anomaly_blob = self.anomaly_transforms(image=self.anomaly_template, mask=self.anomaly_template_mask)
+                        blob_img, blob_mask = anomaly_blob['image'], anomaly_blob['mask']
+                        scan_slice = increase_brightness(scan_slice, blob_img, cpt, alpha=self.synth_params.get('alpha', 0.9))
+                        if anomaly_mask is not None:
+                            anomaly_mask = paste_mask(anomaly_mask, blob_mask, cpt)
+                        label = 1 # has anomaly
+                except (RecursionError, ValueError):
+                    pass
+                except Exception as exc:
+                    print(f'Unable to augment synthetic anomalies for scan {self}. Index - {index}')
+                    raise exc
+            if anomaly_mask is not None:
+                masks.append(anomaly_mask)
         else:
             if self.labels is None and self.default_label is not None:
                 label = self.default_label

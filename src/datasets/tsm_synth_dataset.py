@@ -1,10 +1,8 @@
 from itertools import chain
 from pathlib import Path
 
-import numpy
 import torch
 from torch.utils.data import ConcatDataset
-from torchsampler import ImbalancedDatasetSampler
 
 from src.datasets.tsm_scan import CTScan
 
@@ -25,7 +23,7 @@ class TSMSyntheticDataset(torch.utils.data.Dataset):
         self.scan_paths = sorted(scans_dir.glob('**/*.nii.gz'))
         self.label_paths = [labels_dir / p.name for p in self.scan_paths]
 
-        self.scans = [] 
+        self.scans = []
         for i, (sp, lp) in enumerate(zip(self.scan_paths, self.label_paths)):
             if i > limit_scans:
                 break

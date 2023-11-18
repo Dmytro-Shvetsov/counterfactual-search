@@ -21,7 +21,7 @@ def build_dataset(kind: str, root_dir: Path, split: str, transforms:albu.Compose
     if kind == 'clf-train-lungs':
         return LungsDataset(root_dir, split, transforms=transforms, explain_classifier=False)
     elif kind == 'totalsegmentor':
-        return TSMSyntheticDataset(root_dir, split, transforms=transforms, **scan_params, **kwargs)
+        return TSMSyntheticDataset(root_dir, split, transforms=transforms, limit_scans=kwargs.get('limit_scans', 999999), **scan_params)
     elif kind == 'kits':
         return KITSDataset(root_dir, split, transforms=transforms, **scan_params, **kwargs)
     elif kind == 'merged':

@@ -46,7 +46,8 @@ class ResBlocksDiscriminator(nn.Module):
                 blocks.DiscriminatorResBlock([d // 32 for d in img_shape], 512, out_channels=1024),
                 blocks.DiscriminatorResBlock([d // 32 for d in img_shape], 1024, out_channels=1024),
                 nn.ReLU(),
-                nn.AdaptiveMaxPool2d(1),  # global sum pooling (GSP)
+                # nn.AvgPool2d(8, stride=1, divisor_override=1)  # global sum pooling (GSP)
+                nn.AdaptiveAvgPool2d(1)  # replacement of GSP
             ]
         )
         self.sn_dense = snlinear.SNLinear(1024, 1)
@@ -57,7 +58,8 @@ class ResBlocksDiscriminator(nn.Module):
         labels = labels.view(-1)
         for b in self.blocks:
             outs = b(outs)
-        gsp = outs.view(*outs.shape[:2])  # (B, 1024, 1, 1)
+        # gsp = outs.view(*outs.shape[:2])  # (B, 1024, 1, 1)
+        gsp = outs.view(-1, outs.shape[1])  # (B, 1024)
         # print('GSP', gsp.shape)
 
         sndense = self.sn_dense(gsp)  # (B, 1)

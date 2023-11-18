@@ -7,10 +7,11 @@ n_epochs: 1000
 epoch_steps: 100
 
 logging_dir: ./training_logs/classification
-experiment_name: tsm_synth_r34
+experiment_name: tsm_synth_r18
 checkpoint_freq: 5
 
 dataset:
+  kind: totalsegmentor
   root_dir: /tmp/totalsegmentor # 1804 * 64 slices in totalsegmentor dataset
   batch_size: 128
   img_size: [256, 256] # hxw
@@ -31,7 +32,7 @@ dataset:
       sigma: 0.5
 
 model:
-  kind: resnet34
+  kind: resnet18
   n_classes: 1
   pretrained: True
   restore_ckpt: null
@@ -40,6 +41,6 @@ model:
   loss: bce
 
   # optimizer's parameters
-  lr: 0.0001
+  lr: 0.001
   b1: 0.9
   b2: 0.999

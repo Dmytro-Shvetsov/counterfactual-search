@@ -77,7 +77,12 @@ class ResBlocksGenerator(nn.Module):
                 blocks.GeneratorResBlock(n_classes, 128, 64, scale_factor=2),
             ]
         )
-        self.last_block = nn.Sequential(nn.BatchNorm2d(64), nn.ReLU(), nn.Conv2d(64, 1, kernel_size=3, padding=1), nn.Tanh())
+        self.last_block = nn.Sequential(
+            nn.BatchNorm2d(64), 
+            nn.ReLU(),
+            nn.Conv2d(64, 1, kernel_size=3, padding=1), 
+            nn.Tanh(),
+        )
 
     def forward(self, z, labels):
         outs = z

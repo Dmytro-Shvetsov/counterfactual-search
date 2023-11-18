@@ -115,5 +115,5 @@ class ClassificationModel(torch.nn.Module):
             loss.backward()
             self.optimizer.step()
 
-        outs = {'loss': loss, 'preds': outputs.squeeze()}
+        outs = {'loss': loss, 'preds': outputs.squeeze(1)}
         return outs

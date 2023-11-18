@@ -7,7 +7,7 @@ from src.models.cgan.blocks import snconv2d
 class DiscriminatorResBlock(nn.Module):
     """Table 16 (c) - https://arxiv.org/pdf/2101.04230v3.pdf"""
 
-    def __init__(self, out_size, in_channels=1, out_channels=64):
+    def __init__(self, out_size, in_channels=1, out_channels=64, first_block=False):
         super().__init__()
         self.out_size = out_size
         self.left_branch = nn.Sequential(
@@ -16,7 +16,7 @@ class DiscriminatorResBlock(nn.Module):
         )
 
         self.right_branch = nn.Sequential(
-            nn.ReLU(),
+            nn.ReLU() if not first_block else nn.Identity(),
             snconv2d.SNConv2d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.ReLU(),
             snconv2d.SNConv2d(out_channels, out_channels, kernel_size=3, padding=1),

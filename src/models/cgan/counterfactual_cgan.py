@@ -55,9 +55,11 @@ class CounterfactualCGAN(nn.Module):
 
         # Loss functions
         self.adversarial_loss = torch.nn.BCEWithLogitsLoss() if opt.get('adv_loss', 'mse') == 'bce' else torch.nn.MSELoss()
+        self.minc_loss = torch.nn.SmoothL1Loss()
         self.lambda_adv = opt.get('lambda_adv', 1.0)
         self.lambda_kl = opt.get('lambda_kl', 1.0)
         self.lambda_rec = opt.get('lambda_rec', 1.0)
+        self.lambda_minc = opt.get('lambda_minc', 1.0)
         self.kl_clamp = 1e-8
         # by default update both generator and discriminator on each training step
         self.gen_update_freq = opt.get('gen_update_freq', 1)
@@ -99,11 +101,14 @@ class CounterfactualCGAN(nn.Module):
         gen_imgs = self.gen(z, f_x_discrete)
         return gen_imgs
 
-    def reconstruction_loss(self, real_imgs, masks, f_x_discrete, f_x_desired_discrete, z=None):
+    def reconstruction_loss(self, real_imgs, gen_imgs, masks, f_x_discrete, f_x_desired_discrete, z=None):
         """
         Computes a reconstruction loss L_rec(E, G) that enforces self-consistency loss
         Formula 9 https://arxiv.org/pdf/2101.04230v3.pdf#page=7&zoom=100,30,412
-
+        
+        real_imgs - input images that are explained
+        gen_imgs - generated images with condition label 1 - f(x) (i.e computation of I_f(x, c))
+        masks - semantic segmentation masks to be used for CARL loss to enforce local consistency for each label
         f_x_discrete - bin index for posterior probability f(x)
         f_x_desired_discrete - bin index for posterior probability 1 - f(x) (also known as desired probability)
         """
@@ -114,14 +119,18 @@ class CounterfactualCGAN(nn.Module):
 
         # I_f(I_f(x, c), f(x))
         ifxc_fx = self.explanation_function(
-            x=self.explanation_function(real_imgs, f_x_desired_discrete, z=z),  # I_f(x, c)
+            x=gen_imgs,  # I_f(x, c)
             f_x_discrete=f_x_discrete,
         )
         # L_rec(x, I_f(I_f(x, c), f(x)))
         cyclic_term = CARL(real_imgs, ifxc_fx, masks)
         return forward_term + cyclic_term
 
+    def minimum_change_loss(self, x, x_prime):
+        return self.minc_loss(x, x_prime)
+
     def forward(self, batch, training=False, compute_norms=False, global_step=None):
+        # imgs are in [-1, 1] range
         imgs, labels, masks = batch['image'], batch['label'], batch['masks']
         batch_size = imgs.shape[0]
 
@@ -145,7 +154,10 @@ class CounterfactualCGAN(nn.Module):
 
         # E(x)
         z = self.enc(real_imgs)
-        # G(z, c)
+        # G(z, c) = I_f(x, c)
+        # TODO: pass gen_imgs to reconstruction loss
+        # TODO: add min change loss between real_imgs and gen_imgs
+        # gen_imgs are in [-1, 1] range
         gen_imgs = self.gen(z, real_f_x_desired_discrete)
 
         update_generator = global_step is not None and global_step % self.gen_update_freq == 0
@@ -159,10 +171,11 @@ class CounterfactualCGAN(nn.Module):
         # both y_pred and y_target are single-value probs for class k
         g_kl = self.lambda_kl * kl_divergence(gen_f_x, real_f_x_desired)
         # reconstruction loss for generator
-        g_rec_loss = self.lambda_rec * self.reconstruction_loss(real_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
+        g_rec_loss = self.lambda_rec * self.reconstruction_loss(real_imgs, gen_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
+        g_minc_loss = self.lambda_minc * self.minimum_change_loss(real_imgs, gen_imgs) if self.lambda_minc != 0 else torch.tensor(0)
 
         # total generator loss
-        g_loss = g_adv_loss + g_kl + g_rec_loss
+        g_loss = g_adv_loss + g_kl + g_rec_loss + g_minc_loss
 
         if training and update_generator:
             g_loss.backward()
@@ -200,6 +213,7 @@ class CounterfactualCGAN(nn.Module):
                 'g_adv': g_adv_loss.item(),
                 'g_kl': g_kl.item(),
                 'g_rec_loss': g_rec_loss.item(),
+                'g_minc_loss': g_minc_loss.item(),
                 'g_loss': g_loss.item(),
                 # discriminator
                 'd_real_loss': d_real_loss.item(),

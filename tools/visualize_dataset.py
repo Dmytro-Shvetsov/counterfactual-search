@@ -86,12 +86,12 @@ def main(args):
     params = edict(opt.dataset, use_sampler=False, reset_sampler=False, shuffle_test=False)
     train_loader, test_loader = get_dataloaders(params, transforms)
 
-    print(f'Total number of samplers: {len(train_loader.dataset) + len(test_loader.dataset)}')
+    print(f'Total number of samples: {len(train_loader.dataset) + len(test_loader.dataset)}')
     print('Visualizing training set...')
-    visualize_dataset(train_loader.dataset, args.output_dir, step=args.step_size, sampling_only=args.sampling_only)
+    visualize_dataset(train_loader.dataset, args.output_dir, step=args.step_size, sampling_only=args.sampling_only, agg_order=args.label_agg_order)
     
     print('Visualizing test set...')
-    visualize_dataset(test_loader.dataset, args.output_dir, step=args.step_size, sampling_only=args.sampling_only)
+    visualize_dataset(test_loader.dataset, args.output_dir, step=args.step_size, sampling_only=args.sampling_only, agg_order=args.label_agg_order)
     
 
 if __name__ == '__main__':
