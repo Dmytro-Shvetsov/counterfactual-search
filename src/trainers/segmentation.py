@@ -5,8 +5,6 @@ from tqdm import tqdm
 
 from src.datasets import get_dataloaders
 from src.datasets.augmentations import get_transforms
-
-# from src.datasets.tsm_synth_dataset import get_totalsegmentor_dataloaders
 from src.models.seg_aux import SegmentationAuxModel
 from src.trainers.trainer import BaseTrainer
 from src.utils.avg_meter import AvgMeter
@@ -18,7 +16,6 @@ class SegmentationTrainer(BaseTrainer):
     def __init__(self, opt: edict, model: SegmentationAuxModel, continue_path: str = None) -> None:
         super().__init__(opt, model, continue_path)
 
-        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         self.task = 'binary' if opt.model.n_classes == 1 else 'multiclass'
 
         self.train_metrics_cls = MetricCollection([
@@ -28,15 +25,7 @@ class SegmentationTrainer(BaseTrainer):
         ]).to(self.device)
         self.val_metrics_cls = self.train_metrics_cls.clone()
 
-        self.train_metrics_seg = MetricCollection(
-            # {
-            # 'seg_iou': IoU(),
-            # 'seg_precision': Precision(),
-            # 'seg_dice': TverskyScore(),
-            # }
-            [
-            # Precision(num_classes=opt.model.n_classes, task=self.task, average='macro'),
-            # Recall(num_classes=opt.model.n_classes, task=self.task, average='macro'),
+        self.train_metrics_seg = MetricCollection([
             Dice(num_classes=self.model.n_masks, average='macro'),
         ]).to(self.device)
         self.val_metrics_seg = self.train_metrics_seg.clone()

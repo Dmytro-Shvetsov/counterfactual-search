@@ -4,6 +4,7 @@ torchvision==0.15.1+cu117
 torchmetrics==1.1.2
 segmentation_models_pytorch==0.3.3
 pytorch-toolbelt==0.6.2
+torch-fidelity==0.3.0
 
 # reading 3D scans
 nibabel==5.1.0

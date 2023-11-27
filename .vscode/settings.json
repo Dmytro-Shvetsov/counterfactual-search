@@ -33,6 +33,10 @@
         "editor.defaultFormatter": "esbenp.prettier-vscode",
         "editor.formatOnSave": true
     },
+    "python.analysis.ignore": [
+        "training_logs/",
+        ".venv"
+    ],
     "python.linting.enabled": false,
     "python.formatting.provider": "none",
     "python.sortImports.args": ["--profile", "black"],
@@ -46,4 +50,5 @@
         // Match what black does.
         "--max-line-length=160"
     ],
+    "git.ignoreLimitWarning": true,
 }

@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 
-def _CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor) -> torch.Tensor:
+def _CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor, eps:float=1e-8) -> torch.Tensor:
     """
     CARL loss from https://arxiv.org/pdf/2101.04230v3.pdf (formula 8).
     This loss implements only the semantic segmentation term for the simplicity.
@@ -18,11 +18,11 @@ def _CARL(x:torch.Tensor, x_prime:torch.Tensor, masks:torch.Tensor) -> torch.Ten
     B = x.shape[0]
     # print(masks.shape, x_prime.shape, x.shape)
     # exit()
-    x, x_prime, masks = x.view(B, -1), x_prime.view(B, -1), masks.view(B, -1).bool()
-    l_rec = F.l1_loss(x, x_prime, reduction='none')
-    l_rec *= masks
+    x, x_prime, masks = x.view(B, -1), x_prime.view(B, -1), masks.view(B, -1)
+    l_rec = (F.l1_loss(x, x_prime, reduction='none') * masks).sum(dim=1, keepdim=True) / (masks.sum(dim=1, keepdim=True) + eps)
+    # l_rec *= masks
     # calculate reconstruction loss sample-wise
-    l_rec = l_rec.mean(dim=1)
+    # l_rec = l_rec.mean(dim=1)
     # average across batches
     return l_rec.mean(dim=0)
 
@@ -47,3 +47,14 @@ def kl_divergence(y_pred, y_true, eps=1e-5):
     kl = torch.mean(kl)
 
     return kl
+
+
+# Hinge Loss
+def loss_hinge_dis(dis_fake, dis_real):
+    d_real = F.relu(1. - dis_real).mean()
+    d_fake = F.relu(1. + dis_fake).mean()
+    return d_real, d_fake
+
+
+def loss_hinge_gen(dis_fake):
+    return -dis_fake.mean()

@@ -4,6 +4,17 @@ from torch import nn
 from src.models.cgan.blocks import cbn, snconv2d
 
 
+def get_upsampling_layer(kind, scale_factor):
+    if kind == 'nearest':
+        return nn.UpsamplingNearest2d(scale_factor=scale_factor)
+    elif kind == 'bilinear':
+        return nn.UpsamplingBilinear2d(scale_factor=scale_factor)
+    elif kind == 'transposed':
+        return nn.PixelShuffle(scale_factor)
+    else:
+        raise ValueError(f'Unsupported upsampling layer kind: {kind}')
+
+
 class GeneratorResBlock(nn.Module):
     """Table 16 (b) - https://arxiv.org/pdf/2101.04230v3.pdf"""
 
@@ -13,21 +24,35 @@ class GeneratorResBlock(nn.Module):
         in_channels=1024,
         out_channels=512,
         scale_factor=2,
+        upsample_kind='nearest',
     ):
         super().__init__()
 
+        upsample = get_upsampling_layer(upsample_kind, scale_factor) if scale_factor > 1 else nn.Identity()
         self.left_branch = nn.Sequential(
-            nn.UpsamplingNearest2d(scale_factor=scale_factor),
+            upsample,
             snconv2d.SNConv2d(in_channels, out_channels, kernel_size=1, padding=0, bias=False),
         )
 
         self.cbn_relu_first = cbn.ConditionalBatchNorm2d(in_channels, num_classes, act=nn.ReLU())
         self.cbn_relu_second = cbn.ConditionalBatchNorm2d(out_channels, num_classes, act=nn.ReLU())
         self.upsample_conv = nn.Sequential(
-            nn.UpsamplingNearest2d(scale_factor=scale_factor),
+            upsample,
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
         )
         self.last_conv = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
+        self.initialize()
+
+    def initialize(self):
+        gain = torch.tensor(1.0)
+        for m in self.left_branch.modules():
+            if isinstance(m, snconv2d.SNConv2d):
+                nn.init.xavier_uniform_(m.weight, gain)
+        gain = torch.tensor(2.0).sqrt()
+        for m in self.upsample_conv.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.xavier_uniform_(m.weight, gain)
+        nn.init.xavier_uniform_(self.last_conv.weight, gain)
 
     def forward(self, x, labels):
         labels = labels.view(-1)

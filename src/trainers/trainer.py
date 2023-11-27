@@ -14,10 +14,10 @@ from ..logger import Logger
 
 class BaseTrainer:
     def __init__(self, opt: edict, model: nn.Module, continue_path: Optional[str] = None) -> None:
+        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        
         self.opt = opt
-        self.model = model
-        if torch.cuda.is_available():
-            self.model.cuda()
+        self.model = model.to(self.device)
         self.batches_done = 0
         self.current_epoch = 0
 

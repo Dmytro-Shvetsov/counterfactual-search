@@ -1,14 +1,15 @@
 from copy import deepcopy
 from unittest import loader
 
+import lightning as L
 import numpy as np
 import torch
 import torch.nn as nn
 from easydict import EasyDict as edict
+from torchmetrics.image.fid import FrechetInceptionDistance
 from torchvision.utils import save_image
 from tqdm import tqdm
 
-# from src.datasets.lungs import get_covid_dataloaders
 from src.datasets import get_dataloaders
 from src.datasets.augmentations import get_transforms
 from src.models.cgan import CounterfactualCGAN
@@ -21,7 +22,13 @@ from src.utils.generic_utils import save_model
 class CounterfactualTrainer(BaseTrainer):
     def __init__(self, opt: edict, model: CounterfactualCGAN, continue_path: str = None) -> None:
         super().__init__(opt, model, continue_path)
+        self.cf_vis_dir = self.logging_dir / 'counterfactuals'
+        self.cf_vis_dir.mkdir(exist_ok=True)
+        
         self.compute_norms = self.opt.get('compute_norms', False)
+        # 64, 192, 768, 2048
+        self.fid_features = opt.get('fid_features', 768)
+        self.val_fid = FrechetInceptionDistance(self.fid_features, normalize=True).to(self.device)
 
     def restore_state(self):
         latest_ckpt = max(self.ckpt_dir.glob('*.pth'), key=lambda p: int(p.name.replace('.pth', '').split('_')[1]))
@@ -41,8 +48,6 @@ class CounterfactualTrainer(BaseTrainer):
         if self.opt.task_name == 'counterfactual' and not skip_cf_sampler: # NB
             # compute sampler labels to create batches with uniformly distributed labels
             params = edict(deepcopy(self.opt.dataset), use_sampler=False, shuffle_test=False)
-            # if params.get('scan_params', {}).get('synth_params'):
-            #     params['scan_params']['synth_params']['p'] = 1.0
             # GAN's train data is expected to be classifier's validation data
             train_loader, _ = get_dataloaders(params, {'train': transforms['val'], 'val': transforms['train']})
             posterior_probs, _ = predict_probs(train_loader, self.model.classifier_f, task='binary' if self.model.n_classes == 1 else 'multiclass')
@@ -60,7 +65,7 @@ class CounterfactualTrainer(BaseTrainer):
 
         stats = AvgMeter()
         epoch_steps = self.opt.get('epoch_steps')
-        with tqdm(enumerate(loader), desc=f'Training epoch: {self.current_epoch}', leave=False, total=epoch_steps or len(loader)) as prog:
+        with tqdm(enumerate(loader), desc=f'Training epoch {self.current_epoch}', leave=False, total=epoch_steps or len(loader)) as prog:
             for i, batch in prog:
                 if i == epoch_steps:
                     break
@@ -89,17 +94,16 @@ class CounterfactualTrainer(BaseTrainer):
 
         stats = AvgMeter()
         avg_pos_to_neg_ratio = 0.0
-        for i, batch in tqdm(enumerate(loader), desc=f'Validation epoch: {self.current_epoch}', leave=False, total=len(loader)):
+        for i, batch in tqdm(enumerate(loader), desc=f'Validation epoch {self.current_epoch}', leave=False, total=len(loader)):
             avg_pos_to_neg_ratio += batch['label'].sum() / batch['label'].shape[0]
-            outs = self.model(batch, training=False)
+            outs = self.model(batch, validation=True)
             stats.update(outs['loss'])
-            # self.batches_done = self.current_epoch * len(loader) + i
-            if i % self.opt.sample_interval == 0:
+            if i % self.opt.sample_interval == 0 and self.opt.get('vis_gen', True):
                 save_image(outs['gen_imgs'][:16].data, self.vis_dir / ('%d_val_%d.jpg' % (self.batches_done, i)), nrow=4, normalize=True)
         self.logger.info('[Average positives/negatives ratio in batch: %f]' % round(avg_pos_to_neg_ratio.item() / len(loader), 3))
         epoch_stats = stats.average()
         if self.current_epoch % self.opt.eval_counter_freq == 0:
-            epoch_stats['counter_acc'], epoch_stats['cv_80'] = self.evaluate_counterfactual(loader)
+            epoch_stats['counter_acc'], epoch_stats['cv_80'], epoch_stats['fid'] = self.evaluate_counterfactual(loader)
         self.logger.log(epoch_stats, self.current_epoch, 'val')
         self.logger.info(
             '[Finished validation epoch %d/%d] [Epoch D loss: %f] [Epoch G loss: %f]'
@@ -112,11 +116,11 @@ class CounterfactualTrainer(BaseTrainer):
         self.model.eval()
 
         classes = []
-        y_true, y_pred = [], []
+        cv_y_true, cv_y_pred = [], []
         posterior_true, posterior_pred = [], []
-        out_dir = self.logging_dir / 'counterfactuals'
-        out_dir.mkdir(exist_ok=True)
-        for i, batch in tqdm(enumerate(loader), desc='Validating counterfactuals:', leave=False, total=len(loader)):
+
+        for i, batch in tqdm(enumerate(loader), desc='Validating counterfactuals', leave=False, total=len(loader)):
+            # Evaluate Counterfactual Validity Metric
             real_imgs, labels = batch['image'].cuda(non_blocking=True), batch['label']
             self.model: CounterfactualCGAN
             real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = self.model.posterior_prob(real_imgs)
@@ -135,7 +139,7 @@ class CounterfactualTrainer(BaseTrainer):
             )
 
             # our ground truth is the `flipped` labels
-            y_true.extend(real_f_x_desired_discrete.cpu().squeeze(1).numpy())
+            cv_y_true.extend(real_f_x_desired_discrete.cpu().squeeze(1).numpy())
             posterior_true.extend(real_f_x.cpu().squeeze(1).numpy())
             classes.extend(labels.cpu().numpy())
 
@@ -144,34 +148,53 @@ class CounterfactualTrainer(BaseTrainer):
 
             gen_f_x, gen_f_x_discrete, gen_f_x_desired, gen_f_x_desired_discrete = self.model.posterior_prob(gen_imgs)
             # our prediction is the classifier's label for the generated images given the desired posterior probability
-            y_pred.extend(gen_f_x_discrete.cpu().squeeze(1).numpy())
+            cv_y_pred.extend(gen_f_x_discrete.cpu().squeeze(1).numpy())
             posterior_pred.extend(gen_f_x.cpu().squeeze(1).numpy())
 
-            # take first images and denorm values from [-1; 1] to [0, 1] range
-            real_imgs, gen_imgs = (real_imgs[0] + 1) / 2, (gen_imgs[0] + 1) / 2
+            # denorm values from [-1; 1] to [0, 1] range, B x 1 x H x W
+            real_imgs.add_(1).div_(2)
+            gen_imgs.add_(1).div_(2)
 
+            # take the first example, compute difference map for it and save the image
             # difference map
-            diff = (real_imgs - gen_imgs).abs()
-            vis = torch.stack((real_imgs, gen_imgs, diff), dim=0)
+            diff = (real_imgs[0] - gen_imgs[0]).abs()
+            vis = torch.stack((real_imgs[0], gen_imgs[0], diff), dim=1)
             save_image(
                 vis.data,
-                out_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.jpg' % (self.current_epoch, i, labels[0], real_f_x_desired_discrete[0][0], gen_f_x_discrete[0][0])),
-                nrow=1,
+                self.cf_vis_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.jpg' % (
+                    self.current_epoch, i, labels[0], real_f_x_desired_discrete[0][0], gen_f_x_discrete[0][0])
+                ),
+                nrow=3,
                 normalize=False,
                 # value_range=(-1, 1),
             )
+            
+            # Evaluate Frechet Inception Distance (FID)
+            # upsample to InceptionV3's resolution and convert to RGB
+            real_imgs = nn.functional.interpolate(real_imgs, size=(299, 299), mode='bilinear', align_corners=False)
+            real_imgs = real_imgs.repeat_interleave(repeats=3, dim=1)
+            self.val_fid.update(real_imgs, real=True)
+            
+            # upsample to InceptionV3's resolution and convert to RGB
+            gen_imgs = nn.functional.interpolate(gen_imgs, size=(299, 299), mode='bilinear', align_corners=False)
+            gen_imgs = gen_imgs.repeat_interleave(repeats=3, dim=1)
+            self.val_fid.update(gen_imgs, real=False)
+
+        num_samples = len(posterior_true)
         self.logger.info(f'Finished evaluating counterfactual results for epoch: {self.current_epoch}')
-        y_true, y_pred = np.array(y_true), np.array(y_pred)
-        cacc = np.mean(y_true == y_pred)
-        self.logger.info(f'Counterfactual accuracy = {cacc} (num_samples={len(y_pred)})')
+
+        # Counterfactual Accuracy (flip rate) Score
+        cv_y_true, cv_y_pred = np.array(cv_y_true), np.array(cv_y_pred)
+        cacc = np.mean(cv_y_true == cv_y_pred)
+        self.logger.info(f'Counterfactual accuracy = {cacc} (num_samples={len(cv_y_pred)})')
 
         posterior_true, posterior_pred = np.array(posterior_true), np.array(posterior_pred)
-        # Counterfactual Validity score
+        # Counterfactual Validity Score
         cv_score = np.mean(np.abs(posterior_true - posterior_pred) > tau)
-        self.logger.info(f'CV(X, Xc) = {cv_score:.3f} (τ={tau}, num_samples={len(posterior_true)})')
+        self.logger.info(f'CV(X, Xc) = {cv_score:.3f} (τ={tau}, num_samples={num_samples})')
 
-        # with open(out_dir / 'probs.txt', 'w') as fid:
-        #     fid.write('i,label,bin_true,bin_pred,posterior_real,posterior_gen\n')
-        #     for i in range(y_true.shape[0]):
-        #         fid.write(','.join(map(str, [i, classes[i], y_true[i], y_pred[i], round(posterior_true[i], 3), round(posterior_pred[i])])) + '\n')
-        return cacc, cv_score
+        # Frechet Inception Distance (FID) Score
+        fid_score = self.val_fid.compute().item()
+        self.logger.info(f'FID(X, Xc) = {fid_score:.3f} (num_samples={num_samples}, features={self.fid_features})')
+        self.val_fid.reset()
+        return cacc, cv_score, fid_score

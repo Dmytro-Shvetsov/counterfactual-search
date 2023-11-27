@@ -7,23 +7,35 @@ from src.models.cgan.blocks import snconv2d
 class EncoderResBlock(nn.Module):
     """Table 16 (a) - https://arxiv.org/pdf/2101.04230v3.pdf"""
 
-    def __init__(self, out_size, in_channels=1, out_channels=64):
+    def __init__(self, in_channels=1, out_channels=64, downsample_scale=1):
         super().__init__()
 
+        downsample = nn.AvgPool2d(downsample_scale, downsample_scale) if downsample_scale > 1 else nn.Identity()
         self.left_branch = nn.Sequential(
-            nn.AdaptiveAvgPool2d(out_size),
+            downsample,
             snconv2d.SNConv2d(in_channels, out_channels, kernel_size=1, padding=0, bias=False),
         )
 
         self.right_branch = nn.Sequential(
             nn.BatchNorm2d(in_channels),
             nn.ReLU(),
-            nn.AdaptiveAvgPool2d(out_size),
+            downsample,
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
         )
+        self.initialize()
+
+    def initialize(self):
+        gain = torch.tensor(1.0)
+        for m in self.left_branch.modules():
+            if isinstance(m, snconv2d.SNConv2d):
+                nn.init.xavier_uniform_(m.weight, gain)
+        gain = torch.tensor(2.0).sqrt()
+        for m in self.right_branch.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.xavier_uniform_(m.weight, gain)
 
     def forward(self, x):
         left = self.left_branch(x)

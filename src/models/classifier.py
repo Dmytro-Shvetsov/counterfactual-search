@@ -34,6 +34,7 @@ def _reinit_resnet(model: models.ResNet, in_channels:int, n_classes:int) -> torc
     return model
 
 # models.vit_b_16
+# models.vit_b_16
 def _reinit_vit(model: models.VisionTransformer, in_channels:int, n_classes:int) -> torch.nn.Module:
     model.conv_proj = _rgb_to_gray_conv(model.conv_proj, in_channels)
     model.heads[-1] = nn.Linear(model.heads[-1].in_features, n_classes)
@@ -42,6 +43,13 @@ def _reinit_vit(model: models.VisionTransformer, in_channels:int, n_classes:int)
 
 def _reinit_effnet_v2(model: models.EfficientNet, in_channels:int, n_classes:int) -> torch.nn.Module:
     # models.efficientnet_v2
+    model.features[0][0] = _rgb_to_gray_conv(model.features[0][0], in_channels)
+    model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, n_classes)
+    return model
+
+
+# models.convnext_tiny
+def _reinit_convnext(model: models.ConvNeXt, in_channels:int, n_classes:int) -> models.ConvNeXt:
     model.features[0][0] = _rgb_to_gray_conv(model.features[0][0], in_channels)
     model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, n_classes)
     return model
@@ -57,6 +65,9 @@ def build_classifier(kind, n_classes, pretrained=True, restore_ckpt=None, in_cha
     elif kind.startswith('efficientnet_v2'):
         model = getattr(models, kind)(pretrained=pretrained)
         _reinit_effnet_v2(model, in_channels, n_classes)
+    elif kind.startswith('convnext'):
+        model = getattr(models, kind)(pretrained=pretrained)
+        _reinit_convnext(model, in_channels, n_classes)
     else:
         raise NotImplementedError(kind)
 
@@ -99,7 +110,7 @@ class ClassificationModel(torch.nn.Module):
         super().__init__(*args, **kwargs)
         self.n_classes = opt.n_classes
         self.in_channels = opt.in_channels
-        self.model = build_classifier(opt.kind, opt.n_classes, pretrained=opt.pretrained, image_size=img_size)
+        self.model = build_classifier(opt.kind, opt.n_classes, pretrained=opt.get('pretrained', False), image_size=img_size)
         self.loss = torch.nn.BCEWithLogitsLoss() if opt.n_classes == 1 else torch.nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2), weight_decay=opt.get('weight_decay', 0.0))
 

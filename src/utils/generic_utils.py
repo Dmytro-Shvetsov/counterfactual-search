@@ -43,14 +43,21 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def setup_logger(name, log_file=None):
-    logging.basicConfig(
-        level=logging.INFO, 
-        format= r'[%(asctime)s|%(levelname)s] - %(message)s',
-        datefmt=r'%Y-%m-%d %H:%M:%S',
-        handlers=[logging.StreamHandler()] + ([logging.FileHandler(log_file, 'a+')] if log_file is not None else [])
-    )
-    return logging.getLogger(name)
+def setup_logger(name, log_file=None, message_format='[%(asctime)s|%(levelname)s] - %(message)s', level=logging.INFO):
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    formatter = logging.Formatter(message_format, datefmt=r'%Y-%m-%d %H:%M:%S')
+    
+    if log_file:
+        fh = logging.FileHandler(log_file, mode='w', encoding='utf8')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+
+    ch = logging.StreamHandler()
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    return logger
 
 
 def save_model(config:dict, model:torch.nn.Module, optimizers:List[torch.nn.Module], 

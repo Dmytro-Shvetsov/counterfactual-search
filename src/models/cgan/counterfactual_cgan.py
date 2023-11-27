@@ -1,11 +1,12 @@
 import itertools
 
+import lightning as L
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
-from src.losses import CARL, kl_divergence
+from src.losses import CARL, kl_divergence, loss_hinge_dis, loss_hinge_gen
 from src.models.cgan.discriminator import ResBlocksDiscriminator
 from src.models.cgan.generator import ResBlocksEncoder, ResBlocksGenerator
 from src.models.classifier import build_classifier
@@ -39,14 +40,14 @@ class CounterfactualCGAN(nn.Module):
         super().__init__(*args, **kwargs)
 
         self.opt = opt
-        self.latent_dim = opt.get('noise_dim', 1024)
         self.explain_class_idx = opt.explain_class_idx  # class id to be explained
         self.num_bins = opt.num_bins  # number of bins for explanation
-        self.enc = ResBlocksEncoder(img_size, opt.in_channels)
+        self.ptb_based = opt.get('ptb_based', False)
+        self.enc = ResBlocksEncoder(opt.in_channels, **opt.get('enc_params', {}))
         # generator and discriminator are conditioned against a discrete bin index which is computed
         # from the classifier probability for the explanation class using `posterior2bin` function
-        self.gen = ResBlocksGenerator(self.num_bins, in_channels=self.latent_dim)
-        self.disc = ResBlocksDiscriminator(img_size, self.num_bins, opt.in_channels)
+        self.gen = ResBlocksGenerator(self.num_bins, in_channels=self.enc.latent_dim, **opt.get('gen_params', {}))
+        self.disc = ResBlocksDiscriminator(self.num_bins, opt.in_channels, **opt.get('disc_params', {}))
 
         # black box classifier
         self.n_classes = opt.n_classes
@@ -54,13 +55,17 @@ class CounterfactualCGAN(nn.Module):
         self.classifier_f.eval()
 
         # Loss functions
-        self.adversarial_loss = torch.nn.BCEWithLogitsLoss() if opt.get('adv_loss', 'mse') == 'bce' else torch.nn.MSELoss()
+        self.adv_loss = opt.get('adv_loss', 'mse')
+        self.adversarial_loss = torch.nn.BCEWithLogitsLoss() if self.adv_loss else torch.nn.MSELoss()
         self.minc_loss = torch.nn.SmoothL1Loss()
         self.lambda_adv = opt.get('lambda_adv', 1.0)
         self.lambda_kl = opt.get('lambda_kl', 1.0)
         self.lambda_rec = opt.get('lambda_rec', 1.0)
         self.lambda_minc = opt.get('lambda_minc', 1.0)
-        self.kl_clamp = 1e-8
+        
+        self.eps = opt.get('eps', 1e-8)
+        
+        self.kl_clamp = self.eps
         # by default update both generator and discriminator on each training step
         self.gen_update_freq = opt.get('gen_update_freq', 1)
 
@@ -68,11 +73,25 @@ class CounterfactualCGAN(nn.Module):
             itertools.chain.from_iterable((self.enc.parameters(), self.gen.parameters())),
             lr=opt.lr,
             betas=(opt.b1, opt.b2),
+            eps=self.eps,
         )
-        self.optimizer_D = torch.optim.Adam(self.disc.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+        self.optimizer_D = torch.optim.Adam(self.disc.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2), eps=self.eps)
         self.norms = {'E': None, 'G': None, 'D': None}
+        self.gen_loss_logs, self.disc_loss_logs = {}, {}
+        self.fabric_setup = False
+
+    def prepare_fabric(self) -> None:
+        self.fabric = L.Fabric(precision=self.opt.get('precision', '32'))
+        self.fabric.launch()
+        self.enc = self.fabric.setup_module(self.enc)
+        self.gen = self.fabric.setup_module(self.gen)
+        self.disc = self.fabric.setup_module(self.disc)
+        self.optimizer_D, self.optimizer_G = self.fabric.setup_optimizers(self.optimizer_D, self.optimizer_G)
 
     def train(self, mode: bool = True) -> torch.nn.Module:
+        if not self.fabric_setup:
+            self.prepare_fabric()
+            self.fabric_setup = True
         ret = super().train(mode)
         # black-box classifier remains fixed throughout the whole training
         for mod in self.classifier_f.modules():
@@ -98,7 +117,7 @@ class CounterfactualCGAN(nn.Module):
             # get embedding of the input image
             z = self.enc(x)
         # reconstruct explanation images
-        gen_imgs = self.gen(z, f_x_discrete)
+        gen_imgs = self.gen(z, f_x_discrete, x=x if self.ptb_based else None)
         return gen_imgs
 
     def reconstruction_loss(self, real_imgs, gen_imgs, masks, f_x_discrete, f_x_desired_discrete, z=None):
@@ -129,7 +148,7 @@ class CounterfactualCGAN(nn.Module):
     def minimum_change_loss(self, x, x_prime):
         return self.minc_loss(x, x_prime)
 
-    def forward(self, batch, training=False, compute_norms=False, global_step=None):
+    def forward(self, batch, training=False, validation=False, compute_norms=False, global_step=None):
         # imgs are in [-1, 1] range
         imgs, labels, masks = batch['image'], batch['label'], batch['masks']
         batch_size = imgs.shape[0]
@@ -152,37 +171,59 @@ class CounterfactualCGAN(nn.Module):
         if training:
             self.optimizer_G.zero_grad()
 
+        # `real_imgs` and `gen_imgs` are in [-1, 1] range
         # E(x)
         z = self.enc(real_imgs)
         # G(z, c) = I_f(x, c)
-        # TODO: pass gen_imgs to reconstruction loss
-        # TODO: add min change loss between real_imgs and gen_imgs
-        # gen_imgs are in [-1, 1] range
-        gen_imgs = self.gen(z, real_f_x_desired_discrete)
+        gen_imgs = self.gen(z, real_f_x_desired_discrete, x=real_imgs if self.ptb_based else None)
 
         update_generator = global_step is not None and global_step % self.gen_update_freq == 0
+        
         # data consistency loss for generator
-        validity = self.disc(gen_imgs, real_f_x_desired_discrete)
-        g_adv_loss = self.lambda_adv * self.adversarial_loss(validity, valid)
+        if update_generator or validation:
+            dis_fake = self.disc(gen_imgs, real_f_x_desired_discrete)
+            if self.adv_loss == 'hinge':
+                g_adv_loss = self.lambda_adv * loss_hinge_gen(dis_fake)
+            else:
+                g_adv_loss = self.lambda_adv * self.adversarial_loss(dis_fake, valid)
 
-        # classifier consistency loss for generator
-        # f(I_f(x, c)) ≈ c
-        gen_f_x, _, _, _ = self.posterior_prob(gen_imgs)
-        # both y_pred and y_target are single-value probs for class k
-        g_kl = self.lambda_kl * kl_divergence(gen_f_x, real_f_x_desired)
-        # reconstruction loss for generator
-        g_rec_loss = self.lambda_rec * self.reconstruction_loss(real_imgs, gen_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
-        g_minc_loss = self.lambda_minc * self.minimum_change_loss(real_imgs, gen_imgs) if self.lambda_minc != 0 else torch.tensor(0)
+            # classifier consistency loss for generator
+            # f(I_f(x, c)) ≈ c
+            gen_f_x, _, _, _ = self.posterior_prob(gen_imgs)
+            # both y_pred and y_target are single-value probs for class k
+            g_kl = self.lambda_kl * kl_divergence(gen_f_x, real_f_x_desired)
+            # reconstruction loss for generator
+            g_rec_loss = (
+                self.lambda_rec * self.reconstruction_loss(real_imgs, gen_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
+                if self.lambda_rec != 0 else torch.tensor(0.0, requires_grad=True)
+            )
+            if self.lambda_minc != 0:
+                # if self.ptb_based:
+                #     # force the model to minimize the perturbations made
+                #     g_minc_loss = self.lambda_minc * gen_imgs.mean()
+                # else:
+                #     # force the model to make the generated images look similar to the inputs
+                #     g_minc_loss = self.lambda_minc * self.minimum_change_loss(real_imgs, gen_imgs)
+                g_minc_loss = self.lambda_minc * self.minimum_change_loss(real_imgs, gen_imgs)
+            else:
+                g_minc_loss = torch.tensor(0.0, requires_grad=True)
+            # total generator loss
+            g_loss = g_adv_loss + g_kl + g_rec_loss + g_minc_loss
 
-        # total generator loss
-        g_loss = g_adv_loss + g_kl + g_rec_loss + g_minc_loss
+            # update generator
+            if update_generator:
+                # g_loss.backward()
+                self.fabric.backward(g_loss)
+                if compute_norms:
+                    self.norms['E'] = grad_norm(self.enc)
+                    self.norms['G'] = grad_norm(self.gen)
+                self.optimizer_G.step()
 
-        if training and update_generator:
-            g_loss.backward()
-            if compute_norms:
-                self.norms['E'] = grad_norm(self.enc)
-                self.norms['G'] = grad_norm(self.gen)
-            self.optimizer_G.step()
+            self.gen_loss_logs['g_adv'] = g_adv_loss.item()
+            self.gen_loss_logs['g_kl'] = g_kl.item()
+            self.gen_loss_logs['g_rec_loss'] = g_rec_loss.item()
+            self.gen_loss_logs['g_minc_loss'] = g_minc_loss.item()
+            self.gen_loss_logs['g_loss'] = g_loss.item()
 
         # ---------------------
         #  Train Discriminator
@@ -190,36 +231,32 @@ class CounterfactualCGAN(nn.Module):
         if training:
             self.optimizer_D.zero_grad()
 
-        # data consistency loss for discriminator (real images)
-        validity_real = self.disc(real_imgs, real_f_x_desired_discrete)
-        d_real_loss = self.adversarial_loss(validity_real, valid)
+        dis_real = self.disc(real_imgs, real_f_x_discrete) # changed from real_f_x_desired_discrete to real_f_x_discrete
+        dis_fake = self.disc(gen_imgs.detach(), real_f_x_desired_discrete)
 
-        # data consistency loss for discriminator (fake images)
-        validity_fake = self.disc(gen_imgs.detach(), real_f_x_desired_discrete)
-        d_fake_loss = self.adversarial_loss(validity_fake, fake)
-
+        # data consistency loss for discriminator (real and fake images)
+        if self.adv_loss == 'hinge':
+            d_real_loss, d_fake_loss = loss_hinge_dis(dis_fake, dis_real)
+        else:
+            d_real_loss = self.adversarial_loss(dis_real, valid)
+            d_fake_loss = self.adversarial_loss(dis_fake, fake)
+        
         # total discriminator loss
         d_loss = (d_real_loss + d_fake_loss) / 2
 
         if training:
-            d_loss.backward()
+            # d_loss.backward()
+            self.fabric.backward(d_loss)
             if compute_norms:
                 self.norms['D'] = grad_norm(self.disc)
             self.optimizer_D.step()
 
+        self.disc_loss_logs['d_real_loss'] = d_real_loss.item()
+        self.disc_loss_logs['d_fake_loss'] = d_fake_loss.item()
+        self.disc_loss_logs['d_loss'] = d_loss.item()
+
         outs = {
-            'loss': {
-                # generator
-                'g_adv': g_adv_loss.item(),
-                'g_kl': g_kl.item(),
-                'g_rec_loss': g_rec_loss.item(),
-                'g_minc_loss': g_minc_loss.item(),
-                'g_loss': g_loss.item(),
-                # discriminator
-                'd_real_loss': d_real_loss.item(),
-                'd_fake_loss': d_fake_loss.item(),
-                'd_loss': d_loss.item(),
-            },
+            'loss': {**self.gen_loss_logs, **self.disc_loss_logs},
             'gen_imgs': gen_imgs,
         }
         return outs

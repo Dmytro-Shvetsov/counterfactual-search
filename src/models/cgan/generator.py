@@ -39,25 +39,36 @@ class Generator(nn.Module):
 class ResBlocksEncoder(nn.Module):
     """Table 5(a) - https://arxiv.org/pdf/2101.04230v3.pdf"""
 
-    def __init__(self, img_shape, in_channels=1):
+    def __init__(self, in_channels=1, downsample_scales=[2, 2, 2, 2, 2], out_channels=[64, 128, 256, 512, 1024]):
         super().__init__()
+        assert len(downsample_scales) == len(out_channels)
+        self.n_blocks = len(out_channels)
+
         self.first_block = nn.Sequential(
-            nn.BatchNorm2d(in_channels),
+            # original paper has bn->relu->conv
+            nn.Conv2d(in_channels, 64, kernel_size=3, padding=1, bias=False),
             nn.ReLU(),
-            nn.Conv2d(in_channels, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
         )
         self.blocks = nn.ModuleList(
             [
-                blocks.EncoderResBlock([d // 2 for d in img_shape], in_channels, out_channels=64),
-                blocks.EncoderResBlock([d // 4 for d in img_shape], 64, out_channels=128),
-                blocks.EncoderResBlock([d // 8 for d in img_shape], 128, out_channels=256),
-                blocks.EncoderResBlock([d // 16 for d in img_shape], 256, out_channels=512),
-                blocks.EncoderResBlock([d // 32 for d in img_shape], 512, out_channels=1024),
+                blocks.EncoderResBlock(64, out_channels[0], downsample_scales[0]),
+                *(
+                    blocks.EncoderResBlock(out_channels[i-1], out_channels[i], downsample_scales[i])
+                    for i in range(1, self.n_blocks)
+                ),
             ]
         )
+        self.latent_dim = out_channels[-1]
+        self.initialize()
+        print('Initialized encoder')
+        print(self)
+
+    def initialize(self):
+        nn.init.xavier_normal_(self.first_block[0].weight, torch.tensor(1.0))
 
     def forward(self, imgs):
-        outs = imgs
+        outs = self.first_block(imgs)
         for b in self.blocks:
             outs = b(outs)
         return outs
@@ -66,31 +77,50 @@ class ResBlocksEncoder(nn.Module):
 class ResBlocksGenerator(nn.Module):
     """Table 5(b) - https://arxiv.org/pdf/2101.04230v3.pdf"""
 
-    def __init__(self, n_classes, in_channels=1024):
+    def __init__(
+        self, 
+        n_classes, 
+        in_channels=1024, 
+        upsample_scales=[2, 2, 2, 2, 2], 
+        out_channels=[1024, 512, 256, 128, 64],
+        upsample_kind='nearest',
+    ):
         super().__init__()
+        self.n_blocks = len(out_channels)
+        assert len(upsample_scales) == len(out_channels)
+
         self.blocks = nn.ModuleList(
             [
-                blocks.GeneratorResBlock(n_classes, in_channels, in_channels, scale_factor=2),
-                blocks.GeneratorResBlock(n_classes, in_channels, 512, scale_factor=2),
-                blocks.GeneratorResBlock(n_classes, 512, 256, scale_factor=2),
-                blocks.GeneratorResBlock(n_classes, 256, 128, scale_factor=2),
-                blocks.GeneratorResBlock(n_classes, 128, 64, scale_factor=2),
+                blocks.GeneratorResBlock(n_classes, in_channels, out_channels[0], scale_factor=upsample_scales[0], upsample_kind=upsample_kind),
+                *(
+                    blocks.GeneratorResBlock(n_classes, out_channels[i-1], out_channels[i], scale_factor=upsample_scales[i], upsample_kind=upsample_kind)
+                    for i in range(1, self.n_blocks)
+                ),
             ]
         )
         self.last_block = nn.Sequential(
-            nn.BatchNorm2d(64), 
+            # TODO: think if relu -> BN is better
+            nn.BatchNorm2d(out_channels[-1]), 
             nn.ReLU(),
-            nn.Conv2d(64, 1, kernel_size=3, padding=1), 
-            nn.Tanh(),
+            nn.Conv2d(out_channels[-1], 1, kernel_size=3, padding=1), 
         )
+        self.tanh = nn.Tanh()
+        self.initialize()
+        print('Initialized generator')
+        print(self)
 
-    def forward(self, z, labels):
+    def initialize(self):
+        nn.init.xavier_uniform_(self.last_block[2].weight, torch.tensor(1.0))
+
+    def forward(self, z, labels, x=None):
+        # (B, 1024, 8, 8) for img_shape=(256, 256)
         outs = z
         for b in self.blocks:
             outs = b(outs, labels)
         outs = self.last_block(outs)
-        # (B, 1024, 8, 8) for img_shape=(256, 256)
-        return outs
+        if x is not None:
+            outs = outs + x
+        return self.tanh(outs)
 
 
 if __name__ == '__main__':

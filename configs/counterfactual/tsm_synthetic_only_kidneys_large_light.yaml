@@ -1,13 +1,13 @@
 task_name: counterfactual
 
 seed: 777
-sample_interval: 150
+sample_interval: 50
 
 n_epochs: 1000
 # epoch_steps: 800
 
 logging_dir: ./training_logs/counterfactual
-experiment_name: tsm_synth-large_r18_e2e_kdn-only_fix_kl_fix_rec_bs32_adpgsp_norms
+experiment_name: tsm_synth-large_r18_e2e_kdn-only_bs64_gsp_arch1_no_kl_advhinge_fixcomp
 checkpoint_freq: 5
 eval_counter_freq: 2
 
@@ -16,13 +16,14 @@ compute_norms: True
 dataset:
   kind: totalsegmentor
   root_dir: ./data/totalsegmentor # 1804 * 64 slices in totalsegmentor dataset
-  batch_size: 32
+  batch_size: 64
   img_size: [256, 256] # hxw
   use_sampler: False
   num_workers: 28
   imagenet_norm: False # mean=[0.5], std=[0.5]
   augs: [] # only resize and norm
 
+  # limit_scans: 10
   scan_params:
     load_masks: True
     min_max_normalization: True
@@ -42,11 +43,39 @@ model:
   kind: counterfactual_lungs_cgan
   in_channels: 1
   gen_update_freq: 5
+  adv_loss: hinge
   lambda_adv: 1.0
   # lambda_kl: 0.05
-  lambda_kl: 1.0
-  lambda_rec: 6
-  lambda_minc: 0.0
+  lambda_kl: 0
+  lambda_rec: 1.0
+  lambda_minc: 0
+
+  # default setting
+  # enc_params:
+  #   downsample_scales: [2, 4, 8, 16, 32]
+  #   out_channels: [64, 128, 256, 512, 1024]
+
+  # gen_params:
+  #   upsample_scales: [2, 2, 2, 2, 2]
+  #   out_channels: [1024, 512, 256, 128, 64]
+
+  # disc_params:
+  #   downsample_scales: [2, 4, 8, 16, 32, 32]
+  #   out_channels: [64, 128, 256, 512, 1024, 1024]
+
+  # light
+  enc_params:
+    downsample_scales: [2, 4, 8, 16, 32]
+    out_channels: [32, 64, 128, 256, 512]
+
+  gen_params:
+    upsample_scales: [2, 2, 2, 2, 2]
+    out_channels: [512, 256, 128, 64, 32]
+
+  disc_params:
+    downsample_scales: [2, 4, 8, 16, 32, 32]
+    out_channels: [32, 64, 128, 256, 512, 512]
+    output_logits: True
 
   # counterfactual parameters
   num_bins: 2 # number of discrete bins into which posterior probabilities are sorted

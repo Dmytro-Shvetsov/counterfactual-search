@@ -7,7 +7,7 @@ n_epochs: 1000
 epoch_steps: 100
 
 logging_dir: ./training_logs/classification
-experiment_name: tsm_synth-large_r18_aug
+experiment_name: tsm_synth-large_convnext_base_aug
 checkpoint_freq: 2
 
 dataset:
@@ -38,7 +38,7 @@ dataset:
       mask_thresh: 0.25
 
 model:
-  kind: resnet18
+  kind: convnext_base # resnet18
   n_classes: 1
   pretrained: True
   restore_ckpt: null
