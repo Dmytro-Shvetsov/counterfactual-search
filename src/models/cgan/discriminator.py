@@ -66,8 +66,8 @@ class ResBlocksDiscriminator(nn.Module):
         self.output_logits = output_logits
 
         self.initialize()
-        print('Initialized discriminator')
-        print(self)
+        # print('Initialized discriminator')
+        # print(self)
 
     def initialize(self):
         gain = torch.tensor(1.0)

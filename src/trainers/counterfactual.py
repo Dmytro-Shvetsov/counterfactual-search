@@ -29,6 +29,7 @@ class CounterfactualTrainer(BaseTrainer):
         # 64, 192, 768, 2048
         self.fid_features = opt.get('fid_features', 768)
         self.val_fid = FrechetInceptionDistance(self.fid_features, normalize=True).to(self.device)
+        # self.iou = IoU
 
     def restore_state(self):
         latest_ckpt = max(self.ckpt_dir.glob('*.pth'), key=lambda p: int(p.name.replace('.pth', '').split('_')[1]))
@@ -112,7 +113,7 @@ class CounterfactualTrainer(BaseTrainer):
         return epoch_stats
 
     @torch.no_grad()
-    def evaluate_counterfactual(self, loader, tau=0.8):
+    def evaluate_counterfactual(self, loader, tau=0.8, skip_fid=False):
         self.model.eval()
 
         classes = []
@@ -145,6 +146,9 @@ class CounterfactualTrainer(BaseTrainer):
 
             # computes I_f(x, c)
             gen_imgs = self.model.explanation_function(real_imgs, real_f_x_desired_discrete)
+            
+            gen_imgs2 = self.model.explanation_function(real_imgs[0].unsqueeze(0), real_f_x_discrete[0].unsqueeze(0))
+            print(real_f_x_discrete.shape, gen_imgs2.shape, real_imgs.shape)
 
             gen_f_x, gen_f_x_discrete, gen_f_x_desired, gen_f_x_desired_discrete = self.model.posterior_prob(gen_imgs)
             # our prediction is the classifier's label for the generated images given the desired posterior probability
@@ -157,28 +161,32 @@ class CounterfactualTrainer(BaseTrainer):
 
             # take the first example, compute difference map for it and save the image
             # difference map
+            # print(gen_imgs2.shape, gen_imgs.shape)
             diff = (real_imgs[0] - gen_imgs[0]).abs()
-            vis = torch.stack((real_imgs[0], gen_imgs[0], diff), dim=1)
+            diff2 = (gen_imgs2[0].add_(1).div_(2) - gen_imgs[0]).abs()
+            vis = torch.stack((real_imgs[0], gen_imgs[0], diff, diff2), dim=0)
+            # print(real_imgs[0].shape, gen_imgs[0].shape, diff.shape, diff2.shape, vis.shape)
             save_image(
                 vis.data,
                 self.cf_vis_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.jpg' % (
                     self.current_epoch, i, labels[0], real_f_x_desired_discrete[0][0], gen_f_x_discrete[0][0])
                 ),
-                nrow=3,
+                nrow=4,
                 normalize=False,
                 # value_range=(-1, 1),
             )
-            
-            # Evaluate Frechet Inception Distance (FID)
-            # upsample to InceptionV3's resolution and convert to RGB
-            real_imgs = nn.functional.interpolate(real_imgs, size=(299, 299), mode='bilinear', align_corners=False)
-            real_imgs = real_imgs.repeat_interleave(repeats=3, dim=1)
-            self.val_fid.update(real_imgs, real=True)
-            
-            # upsample to InceptionV3's resolution and convert to RGB
-            gen_imgs = nn.functional.interpolate(gen_imgs, size=(299, 299), mode='bilinear', align_corners=False)
-            gen_imgs = gen_imgs.repeat_interleave(repeats=3, dim=1)
-            self.val_fid.update(gen_imgs, real=False)
+
+            if not skip_fid:
+                # Evaluate Frechet Inception Distance (FID)
+                # upsample to InceptionV3's resolution and convert to RGB
+                real_imgs = nn.functional.interpolate(real_imgs, size=(299, 299), mode='bilinear', align_corners=False)
+                real_imgs = real_imgs.repeat_interleave(repeats=3, dim=1)
+                self.val_fid.update(real_imgs, real=True)
+                
+                # upsample to InceptionV3's resolution and convert to RGB
+                gen_imgs = nn.functional.interpolate(gen_imgs, size=(299, 299), mode='bilinear', align_corners=False)
+                gen_imgs = gen_imgs.repeat_interleave(repeats=3, dim=1)
+                self.val_fid.update(gen_imgs, real=False)
 
         num_samples = len(posterior_true)
         self.logger.info(f'Finished evaluating counterfactual results for epoch: {self.current_epoch}')
@@ -193,8 +201,10 @@ class CounterfactualTrainer(BaseTrainer):
         cv_score = np.mean(np.abs(posterior_true - posterior_pred) > tau)
         self.logger.info(f'CV(X, Xc) = {cv_score:.3f} (τ={tau}, num_samples={num_samples})')
 
-        # Frechet Inception Distance (FID) Score
-        fid_score = self.val_fid.compute().item()
-        self.logger.info(f'FID(X, Xc) = {fid_score:.3f} (num_samples={num_samples}, features={self.fid_features})')
-        self.val_fid.reset()
+        fid_score = None
+        if not skip_fid:
+            # Frechet Inception Distance (FID) Score
+            fid_score = self.val_fid.compute().item()
+            self.logger.info(f'FID(X, Xc) = {fid_score:.3f} (num_samples={num_samples}, features={self.fid_features})')
+            self.val_fid.reset()
         return cacc, cv_score, fid_score

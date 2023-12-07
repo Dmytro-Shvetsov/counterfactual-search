@@ -34,9 +34,14 @@ class MergedDataset(torch.utils.data.Dataset):
     def __init__(self, split:str, transforms:albu.Compose, dataset_cfgs:list[dict]):
         assert dataset_cfgs, 'No datasets configured'
         # pprint(dataset_cfgs)
+        self.split = split
         self.datasets = [build_dataset(split=split, transforms=transforms, **cfg) for cfg in dataset_cfgs]
         self.dataset = torch.utils.data.ConcatDataset(self.datasets)
-        # self.classes = self.datasets[0].scans[0].classes
+        self.classes = self.datasets[0].scans[0].classes
+
+    @property
+    def scans(self):
+        return list(chain.from_iterable(dst.scans for dst in self.datasets))
 
     def get_sampling_labels(self):
         lbs = list(chain.from_iterable(dataset.get_sampling_labels() for dataset in self.datasets))

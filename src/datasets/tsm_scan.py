@@ -10,6 +10,8 @@ import numpy as np
 import torch
 from numpy.lib.format import open_memmap
 
+from src.datasets.normalizers import ImageNormalization, get_normalization_scheme
+
 
 def gaussian_blob(size, mu=0, sigma=0.5):
     x, y = np.meshgrid(np.linspace(-1, 1, size), np.linspace(-1, 1, size))
@@ -81,6 +83,7 @@ class CTScan(torch.utils.data.Dataset):
         self,
         scan_path: Path,
         labels_path: Path,
+        norm_scheme: dict = {'kind': 'minmax'},
         transforms: albu.Compose = None,
         min_max_normalization: bool = True,
         slicing_direction: str = 'axial',
@@ -147,6 +150,7 @@ class CTScan(torch.utils.data.Dataset):
             if self.slice_indices is not None:
                 self.labels = self.labels[self.slice_indices]
         self.default_label = default_label
+        self.norm = get_normalization_scheme(**norm_scheme)
 
     def load_volume(self, scan_path: Path, dtype=np.int32) -> np.ndarray:
         mmap_path = scan_path.with_name(scan_path.stem + '.npy')
@@ -223,16 +227,8 @@ class CTScan(torch.utils.data.Dataset):
             print(f'Unable to load {slice_index} slice - {self} ({index} dataset item)')
             exit()
 
-        clip_range = np.percentile(scan_slice, q=0.05), np.percentile(scan_slice, q=99.5)
-        scan_slice = np.clip(scan_slice, *clip_range)  # normalization
-
         # normalize image
-        smin, smax = scan_slice.min(), scan_slice.max()
-        if self.min_max_norm:
-            scan_slice = (scan_slice - smin) / max((smax - smin), 1.0)
-        else:
-            # scan_slice = (scan_slice - scan_slice.mean()) / scan_slice.std()
-            raise NotImplementedError
+        scan_slice = self.norm(scan_slice, label_slice)
 
         # prepare masks
         masks = []
@@ -241,33 +237,15 @@ class CTScan(torch.utils.data.Dataset):
             # multiclass/multilabel setting
             classes = self.load_masks if isinstance(self.load_masks, list) else self.classes
             masks = [(label_slice == self.class_to_idx[c]).astype(np.uint8) if c != 'zero_mask' else np.zeros_like(label_slice, np.uint8) 
-                        for c in classes if c != 'gaussian']
-            # print(classes, self.load_masks, len(masks))
+                     for c in classes if c != 'gaussian']
+
+        # normalize image
+        scan_slice = self.norm(scan_slice, label_slice)
 
         # label determines whether an anomaly is present in the slice or not
-        label = 0  # no anomaly by default
         if self.synth_params:
-            assert len(self.classes) == 3
             target_mask = masks[-1] if masks else label_slice.astype(np.uint8)
-            anomaly_mask = np.zeros_like(masks[-1]) if masks else None
-            if np.random.rand() < self.synth_params['p']:
-                # if :
-                    # raise ValueError('A mask is too small to inject an annomaly of a configured size.')
-                try:
-                    # randomly sample a point in one of the kidneys
-                    cpt, rect = sample_random_mask_point(target_mask, num_comps_choose_from=2)
-                    if rect is not None and (rect[-1] * rect[-2] > (self.anomaly_template.shape[0] * self.anomaly_template.shape[1])):
-                        anomaly_blob = self.anomaly_transforms(image=self.anomaly_template, mask=self.anomaly_template_mask)
-                        blob_img, blob_mask = anomaly_blob['image'], anomaly_blob['mask']
-                        scan_slice = increase_brightness(scan_slice, blob_img, cpt, alpha=self.synth_params.get('alpha', 0.9))
-                        if anomaly_mask is not None:
-                            anomaly_mask = paste_mask(anomaly_mask, blob_mask, cpt)
-                        label = 1 # has anomaly
-                except (RecursionError, ValueError):
-                    pass
-                except Exception as exc:
-                    print(f'Unable to augment synthetic anomalies for scan {self}. Index - {index}')
-                    raise exc
+            label, scan_slice, anomaly_mask = self._augment_synthetic_anomaly(index, scan_slice, target_mask, bool(masks))
             if anomaly_mask is not None:
                 masks.append(anomaly_mask)
         else:
@@ -287,6 +265,28 @@ class CTScan(torch.utils.data.Dataset):
         sample['scan_name'] = self.name
         sample['slice_index'] = slice_index
         return sample
+
+    def _augment_synthetic_anomaly(self, index:int, scan_slice, target_mask:np.ndarray, ret_seg:bool = False):
+        assert len(self.classes) == 3
+        label = 0  # no anomaly by default
+        anomaly_mask = np.zeros_like(target_mask) if ret_seg else None
+        if np.random.rand() < self.synth_params['p']:
+            try:
+                # randomly sample a point in one of the kidneys
+                cpt, rect = sample_random_mask_point(target_mask, num_comps_choose_from=2)
+                if rect is not None and (rect[-1] * rect[-2] > (self.anomaly_template.shape[0] * self.anomaly_template.shape[1])):
+                    anomaly_blob = self.anomaly_transforms(image=self.anomaly_template, mask=self.anomaly_template_mask)
+                    blob_img, blob_mask = anomaly_blob['image'], anomaly_blob['mask']
+                    scan_slice = increase_brightness(scan_slice, blob_img, cpt, alpha=self.synth_params.get('alpha', 0.9))
+                    if anomaly_mask is not None:
+                        anomaly_mask = paste_mask(anomaly_mask, blob_mask, cpt)
+                    label = 1 # has anomaly
+            except (RecursionError, ValueError):
+                pass
+            except Exception as exc:
+                print(f'Unable to augment synthetic anomalies for scan {self}. Index - {index}')
+                raise exc
+        return label, scan_slice, anomaly_mask
 
     def __str__(self) -> str:
         return self.name

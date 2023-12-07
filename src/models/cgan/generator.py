@@ -44,6 +44,7 @@ class ResBlocksEncoder(nn.Module):
         assert len(downsample_scales) == len(out_channels)
         self.n_blocks = len(out_channels)
 
+        self.out_channels = out_channels
         self.first_block = nn.Sequential(
             # original paper has bn->relu->conv
             nn.Conv2d(in_channels, 64, kernel_size=3, padding=1, bias=False),
@@ -61,17 +62,19 @@ class ResBlocksEncoder(nn.Module):
         )
         self.latent_dim = out_channels[-1]
         self.initialize()
-        print('Initialized encoder')
-        print(self)
+        # print('Initialized encoder')
+        # print(self)
 
     def initialize(self):
         nn.init.xavier_normal_(self.first_block[0].weight, torch.tensor(1.0))
 
     def forward(self, imgs):
         outs = self.first_block(imgs)
+        features = []
         for b in self.blocks:
             outs = b(outs)
-        return outs
+            features.append(outs)
+        return features
 
 
 class ResBlocksGenerator(nn.Module):
@@ -80,20 +83,31 @@ class ResBlocksGenerator(nn.Module):
     def __init__(
         self, 
         n_classes, 
-        in_channels=1024, 
+        in_channels=[64, 128, 256, 512, 1024], 
         upsample_scales=[2, 2, 2, 2, 2], 
         out_channels=[1024, 512, 256, 128, 64],
         upsample_kind='nearest',
+        skip_conn=None,
     ):
         super().__init__()
         self.n_blocks = len(out_channels)
         assert len(upsample_scales) == len(out_channels)
 
+        self.skip_conn = set(skip_conn or [])
+        
+        in_channels = in_channels[::-1]
+        if skip_conn is None:
+            in_channels = [in_channels[0]] + [out_channels[i-1] for i in range(1, self.n_blocks)]
+        else:
+            in_channels = [in_channels[0]] + [out_channels[i-1] + (in_channels[i] if i in self.skip_conn else 0) for i in range(1, self.n_blocks)]
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         self.blocks = nn.ModuleList(
             [
-                blocks.GeneratorResBlock(n_classes, in_channels, out_channels[0], scale_factor=upsample_scales[0], upsample_kind=upsample_kind),
+                blocks.GeneratorResBlock(n_classes, in_channels[0], out_channels[0], scale_factor=upsample_scales[0], upsample_kind=upsample_kind),
                 *(
-                    blocks.GeneratorResBlock(n_classes, out_channels[i-1], out_channels[i], scale_factor=upsample_scales[i], upsample_kind=upsample_kind)
+                    blocks.GeneratorResBlock(n_classes, in_channels[i], out_channels[i], scale_factor=upsample_scales[i], upsample_kind=upsample_kind)
                     for i in range(1, self.n_blocks)
                 ),
             ]
@@ -106,16 +120,18 @@ class ResBlocksGenerator(nn.Module):
         )
         self.tanh = nn.Tanh()
         self.initialize()
-        print('Initialized generator')
-        print(self)
+        # print('Initialized generator')
+        # print(self)
 
     def initialize(self):
         nn.init.xavier_uniform_(self.last_block[2].weight, torch.tensor(1.0))
 
-    def forward(self, z, labels, x=None):
-        # (B, 1024, 8, 8) for img_shape=(256, 256)
-        outs = z
-        for b in self.blocks:
+    def forward(self, features, labels, x=None):
+        features = features[::-1] # revert the features to begin with encoder head
+        outs = features[0] # latent variable `z`; (B, 1024, 8, 8) for img_shape=(256, 256)
+        for i, b in enumerate(self.blocks):
+            if i > 0 and i in self.skip_conn:
+                outs = torch.cat((outs, features[i]), 1)
             outs = b(outs, labels)
         outs = self.last_block(outs)
         if x is not None:

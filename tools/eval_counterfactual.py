@@ -16,6 +16,7 @@ logging.basicConfig(level=logging.INFO)
 parser = argparse.ArgumentParser()
 parser.add_argument('-cp', '--continue_path', type=str, required=True, help='Path to the existing training run to continue interrupted training')
 parser.add_argument('-t', '--tau', type=float, required=False, default=0.8, help='Theshold for the counterfactual score metric')
+parser.add_argument('-sf', '--skip_fid', action='store_true', default=False, help='Whether to skip FID metric calculation')
 opt = parser.parse_args()
 
 
@@ -28,7 +29,7 @@ def main(args):
     model: CounterfactualCGAN = build_model(opt.task_name, opt=opt.model, img_size=opt.dataset.img_size)
     trainer: CounterfactualTrainer = build_trainer(opt.task_name, opt, model, args.continue_path)
     _, test_loader = trainer.get_dataloaders(skip_cf_sampler=True)
-    trainer.evaluate_counterfactual(test_loader, args.tau)
+    trainer.evaluate_counterfactual(test_loader, args.tau, args.skip_fid)
 
 
 if __name__ == '__main__':

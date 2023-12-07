@@ -114,6 +114,7 @@ class SNConv2d(conv._ConvNd):
         w_mat = self.weight.view(self.weight.size(0), -1)
         sigma, _u = max_singular_value(w_mat, self.u)
         self.u.copy_(_u)
+        
         return self.weight / sigma
 
     def forward(self, input):

@@ -26,11 +26,11 @@ parser.add_argument('-na', '--no_aug', action='store_true', default=False, help=
 parser.add_argument('-la', '--label_agg_order', nargs='+', type=int, help='The order at which to overlay the classes masks.')
 opt = parser.parse_args()
 
-def visualize_dataset(dataset:torch.utils.data.Dataset, out_dir:str, step:int=10, alpha=0.7, sampling_only:bool = False, agg_order:list[int]=None) -> None:
+def visualize_dataset(dataset:torch.utils.data.Dataset, out_dir:str, step:int=10, alpha=0.7, sampling_only:bool = False, 
+                      agg_order:list[int]=None) -> None:
     if hasattr(dataset, 'scans'):
         for s in dataset.scans:
             s.load_masks = True
-
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     inds = list(range(0, len(dataset), step)) if not sampling_only else np.nonzero(dataset.get_sampling_labels())[0][::step]
@@ -43,11 +43,12 @@ def visualize_dataset(dataset:torch.utils.data.Dataset, out_dir:str, step:int=10
 
         img = ((s['image'][0].numpy() + 1) / 2) * 255
         img = np.stack([img.astype(np.uint8)]*3, -1)
-    #     print(img.shape, s['scan_name'], s['slice_index'])
+        # print(img.shape, s['scan_name'], s['slice_index'])
         
         vis_mask = np.zeros((*s['masks'].shape[1:], 3), dtype=np.uint8)
         
         for j in (agg_order or range(1, s['masks'].shape[0])):
+            # print(s['masks'].shape, dataset.classes)
             class_name = dataset.classes[j]
             color = CLASS_COLORS.get(class_name, DEFAULT_COLOR)
             cl_mask = np.stack([s['masks'][j].numpy()]*3, -1).astype(np.uint8) * np.array(color).reshape(1, 1, 3)
@@ -83,15 +84,18 @@ def main(args):
 
     print('Creating data loaders to be visualized...')
     transforms = get_transforms(opt.dataset)
+    if args.no_aug:
+        transforms['train'] = transforms['val']
     params = edict(opt.dataset, use_sampler=False, reset_sampler=False, shuffle_test=False)
     train_loader, test_loader = get_dataloaders(params, transforms)
-
     print(f'Total number of samples: {len(train_loader.dataset) + len(test_loader.dataset)}')
     print('Visualizing training set...')
-    visualize_dataset(train_loader.dataset, args.output_dir, step=args.step_size, sampling_only=args.sampling_only, agg_order=args.label_agg_order)
+    visualize_dataset(train_loader.dataset, args.output_dir, step=args.step_size, 
+                      sampling_only=args.sampling_only, agg_order=args.label_agg_order)
     
     print('Visualizing test set...')
-    visualize_dataset(test_loader.dataset, args.output_dir, step=args.step_size, sampling_only=args.sampling_only, agg_order=args.label_agg_order)
+    visualize_dataset(test_loader.dataset, args.output_dir, step=args.step_size, 
+                      sampling_only=args.sampling_only, agg_order=args.label_agg_order)
     
 
 if __name__ == '__main__':
