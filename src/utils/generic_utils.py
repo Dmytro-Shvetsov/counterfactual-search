@@ -57,6 +57,7 @@ def setup_logger(name, log_file=None, message_format='[%(asctime)s|%(levelname)s
     ch = logging.StreamHandler()
     ch.setFormatter(formatter)
     logger.addHandler(ch)
+    logger.propagate = False
     return logger
 
 

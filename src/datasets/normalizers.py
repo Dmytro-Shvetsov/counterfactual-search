@@ -25,14 +25,16 @@ class ImageNormalization(ABC):
         Image and seg must have the same shape. Seg is not always used
         """
         pass
-def scale_number(unscaled, to_min, to_max, from_min, from_max):
-    print((to_max-to_min))
-    return (to_max-to_min)*(unscaled-from_min)/(from_max-from_min)+to_min
+
 
 class CTNormalization(ImageNormalization):
     def __init__(self, rescale=False, use_mask_for_norm: bool = None, fingerprint_path: str = None, target_dtype: Type[number] = np.float32):
         super().__init__(use_mask_for_norm, fingerprint_path, target_dtype)
         self.rescale = rescale
+    
+    @staticmethod
+    def scale_array(unscaled, to_min, to_max, from_min, from_max):
+        return (to_max - to_min) * (unscaled - from_min) / (from_max - from_min) + to_min
     
     def __call__(self, image: np.ndarray, seg: np.ndarray = None) -> np.ndarray:
         assert self.intensity_properties is not None, "CTNormalization requires intensity properties"
@@ -45,11 +47,13 @@ class CTNormalization(ImageNormalization):
         image = (image - mean_intensity) / max(std_intensity, 1e-8)
         
         if self.rescale:
-            # [0; 1] range
-            image = (image - image.min()) / (image.max() - image.min())
+            current_min = (lower_bound - mean_intensity) / std_intensity
+            current_max = (upper_bound - mean_intensity) / std_intensity
+            # [-1; 1] range
+            image = self.scale_array(image, -1.0, 1.0, current_min, current_max)
         return image
 
-    
+
 class MinMaxNormalization(ImageNormalization):
     def __call__(self, image: np.ndarray, seg: np.ndarray = None) -> np.ndarray:
         clip_range = np.percentile(image, q=0.05), np.percentile(image, q=99.5)

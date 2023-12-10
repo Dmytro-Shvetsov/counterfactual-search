@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from easydict import EasyDict as edict
 from torchmetrics.image.fid import FrechetInceptionDistance
+from torchmetrics.classification import BinaryJaccardIndex
 from torchvision.utils import save_image
 from tqdm import tqdm
 
@@ -29,7 +30,11 @@ class CounterfactualTrainer(BaseTrainer):
         # 64, 192, 768, 2048
         self.fid_features = opt.get('fid_features', 768)
         self.val_fid = FrechetInceptionDistance(self.fid_features, normalize=True).to(self.device)
-        # self.iou = IoU
+        
+        self.cf_gt_seg_mask_idx = opt.get('cf_gt_seg_mask_idx', -1)
+        self.cf_threshold = opt.get('cf_threshold', 0.25)
+        self.val_iou_xc = BinaryJaccardIndex(self.cf_threshold).to(self.device)
+        self.val_iou_xfx = BinaryJaccardIndex(self.cf_threshold).to(self.device)
 
     def restore_state(self):
         latest_ckpt = max(self.ckpt_dir.glob('*.pth'), key=lambda p: int(p.name.replace('.pth', '').split('_')[1]))
@@ -104,7 +109,7 @@ class CounterfactualTrainer(BaseTrainer):
         self.logger.info('[Average positives/negatives ratio in batch: %f]' % round(avg_pos_to_neg_ratio.item() / len(loader), 3))
         epoch_stats = stats.average()
         if self.current_epoch % self.opt.eval_counter_freq == 0:
-            epoch_stats['counter_acc'], epoch_stats['cv_80'], epoch_stats['fid'] = self.evaluate_counterfactual(loader)
+            epoch_stats.update(self.evaluate_counterfactual(loader))
         self.logger.log(epoch_stats, self.current_epoch, 'val')
         self.logger.info(
             '[Finished validation epoch %d/%d] [Epoch D loss: %f] [Epoch G loss: %f]'
@@ -120,9 +125,17 @@ class CounterfactualTrainer(BaseTrainer):
         cv_y_true, cv_y_pred = [], []
         posterior_true, posterior_pred = [], []
 
+        # number of samples where classifier predicted > 0.8 and the gt label is 1 (abnormal)
+        pred_num_abnormal_samples = 0
+        true_num_abnormal_samples = 0
         for i, batch in tqdm(enumerate(loader), desc='Validating counterfactuals', leave=False, total=len(loader)):
             # Evaluate Counterfactual Validity Metric
-            real_imgs, labels = batch['image'].cuda(non_blocking=True), batch['label']
+            real_imgs = batch['image'].cuda(non_blocking=True)
+            cf_gt_masks = batch['masks'][:, self.cf_gt_seg_mask_idx].cuda(non_blocking=True)
+            labels = batch['label']
+            true_num_abnormal_samples += labels.sum()
+            B = labels.shape[0]
+
             self.model: CounterfactualCGAN
             real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = self.model.posterior_prob(real_imgs)
 
@@ -131,7 +144,7 @@ class CounterfactualTrainer(BaseTrainer):
                 continue
 
             # filter out samples not belonging to either real negative or positive groups
-            real_imgs, labels = real_imgs[real_neg_pos_group], labels[real_neg_pos_group.cpu()]
+            real_imgs, cf_gt_masks, labels = real_imgs[real_neg_pos_group], cf_gt_masks[real_neg_pos_group], labels[real_neg_pos_group.cpu()]
             real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = (
                 real_f_x[real_neg_pos_group],
                 real_f_x_discrete[real_neg_pos_group],
@@ -145,36 +158,49 @@ class CounterfactualTrainer(BaseTrainer):
             classes.extend(labels.cpu().numpy())
 
             # computes I_f(x, c)
-            gen_imgs = self.model.explanation_function(real_imgs, real_f_x_desired_discrete)
+            gen_cf_c = self.model.explanation_function(real_imgs, real_f_x_desired_discrete)
             
-            gen_imgs2 = self.model.explanation_function(real_imgs[0].unsqueeze(0), real_f_x_discrete[0].unsqueeze(0))
-            print(real_f_x_discrete.shape, gen_imgs2.shape, real_imgs.shape)
+            # computes I_f(x, f(x))
+            gen_cf_fx = self.model.explanation_function(real_imgs, real_f_x_discrete)
+            # print(real_f_x_discrete.shape, gen_cf_fx.shape, real_imgs.shape)
 
-            gen_f_x, gen_f_x_discrete, gen_f_x_desired, gen_f_x_desired_discrete = self.model.posterior_prob(gen_imgs)
+            # computes I_f(x, c)
+            gen_f_x, gen_f_x_discrete, gen_f_x_desired, gen_f_x_desired_discrete = self.model.posterior_prob(gen_cf_c)
             # our prediction is the classifier's label for the generated images given the desired posterior probability
             cv_y_pred.extend(gen_f_x_discrete.cpu().squeeze(1).numpy())
             posterior_pred.extend(gen_f_x.cpu().squeeze(1).numpy())
 
             # denorm values from [-1; 1] to [0, 1] range, B x 1 x H x W
             real_imgs.add_(1).div_(2)
-            gen_imgs.add_(1).div_(2)
+            gen_cf_c.add_(1).div_(2)
+            gen_cf_fx.add_(1).div_(2)
 
-            # take the first example, compute difference map for it and save the image
-            # difference map
-            # print(gen_imgs2.shape, gen_imgs.shape)
-            diff = (real_imgs[0] - gen_imgs[0]).abs()
-            diff2 = (gen_imgs2[0].add_(1).div_(2) - gen_imgs[0]).abs()
-            vis = torch.stack((real_imgs[0], gen_imgs[0], diff, diff2), dim=0)
-            # print(real_imgs[0].shape, gen_imgs[0].shape, diff.shape, diff2.shape, vis.shape)
-            save_image(
-                vis.data,
-                self.cf_vis_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.jpg' % (
-                    self.current_epoch, i, labels[0], real_f_x_desired_discrete[0][0], gen_f_x_discrete[0][0])
-                ),
-                nrow=4,
-                normalize=False,
-                # value_range=(-1, 1),
+            # compute difference maps, threshold and compute IoU
+            # |x - x_c|
+            diff = (real_imgs - gen_cf_c).abs() # [0; 1] values
+            diff_seg = (diff > self.cf_threshold).byte()
+            abnormal_mask = labels.bool()
+            pred_num_abnormal_samples += abnormal_mask.sum()
+            # print(real_imgs.shape, gen_cf_c.shape, gen_cf_fx.shape, diff_seg.shape, cf_gt_masks.shape)
+            self.val_iou_xc.update(diff_seg[abnormal_mask].view(B, -1), cf_gt_masks[abnormal_mask].view(B, -1))
+
+            # |x_fx - x_c|
+            diff2 = (gen_cf_fx - gen_cf_c).abs() # [0; 1] values
+            diff2_seg = (diff2 > self.cf_threshold).byte()
+            self.val_iou_xfx.update(diff2_seg[abnormal_mask].view(B, -1), cf_gt_masks[abnormal_mask].view(B, -1))
+            
+            # diff3 = (real_imgs[0] - gen_cf_fx[0]).abs() # [0; 1] values
+
+            vis = torch.stack((
+                real_imgs[0], cf_gt_masks[0].unsqueeze(0), torch.zeros_like(real_imgs[0]), 
+                gen_cf_c[0], diff[0], diff_seg[0],
+                gen_cf_fx[0], diff2[0], diff2_seg[0],
+            ), dim=0)
+            # save first example for visualization
+            vis_path = self.cf_vis_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.jpg' % (
+                self.current_epoch, i, labels[0], real_f_x_desired_discrete[0][0], gen_f_x_discrete[0][0])
             )
+            save_image(vis.data, vis_path, nrow=3, normalize=False) # value_range=(-1, 1))
 
             if not skip_fid:
                 # Evaluate Frechet Inception Distance (FID)
@@ -184,9 +210,9 @@ class CounterfactualTrainer(BaseTrainer):
                 self.val_fid.update(real_imgs, real=True)
                 
                 # upsample to InceptionV3's resolution and convert to RGB
-                gen_imgs = nn.functional.interpolate(gen_imgs, size=(299, 299), mode='bilinear', align_corners=False)
-                gen_imgs = gen_imgs.repeat_interleave(repeats=3, dim=1)
-                self.val_fid.update(gen_imgs, real=False)
+                gen_cf_c = nn.functional.interpolate(gen_cf_c, size=(299, 299), mode='bilinear', align_corners=False)
+                gen_cf_c = gen_cf_c.repeat_interleave(repeats=3, dim=1)
+                self.val_fid.update(gen_cf_c, real=False)
 
         num_samples = len(posterior_true)
         self.logger.info(f'Finished evaluating counterfactual results for epoch: {self.current_epoch}')
@@ -201,10 +227,25 @@ class CounterfactualTrainer(BaseTrainer):
         cv_score = np.mean(np.abs(posterior_true - posterior_pred) > tau)
         self.logger.info(f'CV(X, Xc) = {cv_score:.3f} (τ={tau}, num_samples={num_samples})')
 
+        cf_iou_xc = self.val_iou_xc.compute().item()
+        self.val_iou_xc.reset()
+        self.logger.info(f'IoU(S, Sc) = {cf_iou_xc:.3f} (cf_thresh={self.cf_threshold}, num_samples={pred_num_abnormal_samples}, mask={self.cf_gt_seg_mask_idx})')
+
+        cf_iou_xfx = self.val_iou_xfx.compute().item()
+        self.val_iou_xfx.reset()
+        self.logger.info(f'IoU(S, Sfx) = {cf_iou_xfx:.3f} (cf_thresh={self.cf_threshold}, num_samples={pred_num_abnormal_samples}, mask={self.cf_gt_seg_mask_idx})')
+
         fid_score = None
         if not skip_fid:
             # Frechet Inception Distance (FID) Score
             fid_score = self.val_fid.compute().item()
             self.logger.info(f'FID(X, Xc) = {fid_score:.3f} (num_samples={num_samples}, features={self.fid_features})')
             self.val_fid.reset()
-        return cacc, cv_score, fid_score
+        
+        self.logger.info(f'Ratio of true abnormal slices to classified as abnormal slices: {pred_num_abnormal_samples / (max(true_num_abnormal_samples, 1e-8))}')
+        return {
+            'counter_acc': cacc,
+            f'cv_{int(tau*100)}': cv_score,
+            'fid': fid_score,
+            'cf_iou_xc': cf_iou_xc,
+        }

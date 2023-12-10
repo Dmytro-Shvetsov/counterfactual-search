@@ -3,11 +3,11 @@ task_name: classification
 seed: 777
 sample_interval: 30
 
-n_epochs: 1000
+n_epochs: 30
 epoch_steps: 100
 
-logging_dir: ./training_logs/classification
-experiment_name: tsm_synth-large_convnext_base_aug
+logging_dir: ./training_logs/classification_ctnorm
+experiment_name: tsm_synth-large_ctnorm_r18_aug
 checkpoint_freq: 2
 
 dataset:
@@ -24,7 +24,6 @@ dataset:
   # limit_scans: 2
 
   scan_params:
-    min_max_normalization: True
     slicing_direction: axial
     classes: ['empty', 'kidney']
     sampling_class: ['kidney']
@@ -37,8 +36,12 @@ dataset:
       sigma: 0.4
       mask_thresh: 0.25
 
+    norm_scheme: &norm
+      kind: minmax
+
 model:
-  kind: convnext_base # resnet18
+  # kind: convnext_base # resnet18
+  kind: resnet18
   n_classes: 1
   pretrained: True
   restore_ckpt: null

@@ -3,15 +3,16 @@ task_name: counterfactual
 seed: 777
 sample_interval: 50
 
-n_epochs: 1000
+n_epochs: 150
 # epoch_steps: 800
 
-logging_dir: ./training_logs/counterfactual
-experiment_name: tsm_synth-large_r18_e2e_kdn-only_bs32_gsp_arch2_advhinge_fixcomp_bce
-checkpoint_freq: 5
-eval_counter_freq: 2
+# logging_dir: ./training_logs/counterfactual_ptb_skipconn
+logging_dir: ./training_logs/debug
+experiment_name: tsm_synth-large_r18_bs32_arch4_fp32-fr_bilinear_sc-1234
+checkpoint_freq: 10
+eval_counter_freq: 10
 
-compute_norms: True
+compute_norms: False
 
 dataset:
   kind: totalsegmentor
@@ -41,26 +42,38 @@ dataset:
 
 model:
   kind: counterfactual_lungs_cgan
+  ptb_based: True # perturbation based generator
   in_channels: 1
   gen_update_freq: 5
-  adv_loss: bce
+  adv_loss: mse
   lambda_adv: 1.0
-  # lambda_kl: 0.05
-  lambda_kl: 0.01
+  lambda_kl: 1.0
   lambda_rec: 1.0
   lambda_minc: 0
-
+  # precision: 16-mixed
+  precision: '32'
+  
+  # optimizers' parameters
+  lr: 0.0002
+  b1: 0.0
+  b2: 0.999
+  eps: 1.0E-7
+  
   # default setting
+  # encoder returns features [block_1(x), block_2(block_1(x)), ..., block_N(...)]
   enc_params:
-    downsample_scales: [2, 4, 8, 16, 32]
+    downsample_scales: [2, 2, 2, 2, 2]
     out_channels: [64, 128, 256, 512, 1024]
 
   gen_params:
     upsample_scales: [2, 2, 2, 2, 2]
     out_channels: [1024, 512, 256, 128, 64]
+    upsample_kind: bilinear
+    # indices are specifided w.r.t bottleneck (index=0) and upwards
+    skip_conn: [1, 2, 3, 4]
 
   disc_params:
-    downsample_scales: [2, 4, 8, 16, 32, 32]
+    downsample_scales: [2, 2, 2, 2, 2, 1]
     out_channels: [64, 128, 256, 512, 1024, 1024]
 
   # counterfactual parameters
@@ -72,7 +85,3 @@ model:
   n_classes: 1 # number of classes in the classifier
   classifier_ckpt: training_logs/classification/resnet18-November-17-2023_06+43PM-df986d6-tsm_synth-large_r18_aug/checkpoints/checkpoint_16.pth
 
-  # optimizers' parameters
-  lr: 0.0002
-  b1: 0.0
-  b2: 0.999

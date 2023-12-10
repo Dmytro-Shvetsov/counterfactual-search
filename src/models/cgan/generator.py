@@ -88,6 +88,7 @@ class ResBlocksGenerator(nn.Module):
         out_channels=[1024, 512, 256, 128, 64],
         upsample_kind='nearest',
         skip_conn=None,
+        ptb_fuse_type='skip_add_tanh',
     ):
         super().__init__()
         self.n_blocks = len(out_channels)
@@ -118,8 +119,16 @@ class ResBlocksGenerator(nn.Module):
             nn.ReLU(),
             nn.Conv2d(out_channels[-1], 1, kernel_size=3, padding=1), 
         )
+        self.ptb_fuse_type = ptb_fuse_type
+        if self.ptb_fuse_type == 'skip_stack_3x3conv_tanh':
+            self.fuse_conv = nn.Conv2d(2, 1, 3, padding=1)
+        elif self.ptb_fuse_type == 'skip_stack_1x1conv_tanh':
+            self.fuse_conv = nn.Conv2d(2, 1, 1, padding=1)
+        else:
+            self.fuse_conv = None
         self.tanh = nn.Tanh()
         self.initialize()
+        print('Using perturbation fuse scheme:', ptb_fuse_type)
         # print('Initialized generator')
         # print(self)
 
@@ -127,6 +136,7 @@ class ResBlocksGenerator(nn.Module):
         nn.init.xavier_uniform_(self.last_block[2].weight, torch.tensor(1.0))
 
     def forward(self, features, labels, x=None):
+        B = labels.shape[0]
         features = features[::-1] # revert the features to begin with encoder head
         outs = features[0] # latent variable `z`; (B, 1024, 8, 8) for img_shape=(256, 256)
         for i, b in enumerate(self.blocks):
@@ -135,7 +145,23 @@ class ResBlocksGenerator(nn.Module):
             outs = b(outs, labels)
         outs = self.last_block(outs)
         if x is not None:
-            outs = outs + x
+            if self.ptb_fuse_type == 'skip_add_tanh':
+                outs = outs + x
+                return self.tanh(outs)
+            elif self.ptb_fuse_type == 'skip_add_l2_tanh':
+                # norms = torch.norm(outs.view(B, -1), dim=1, keepdim=True)
+                norms = torch.norm(outs, dim=(2, 3), keepdim=True)
+                outs = outs / norms.clamp(min=1.0)
+                return self.tanh(outs + x)
+            elif self.ptb_fuse_type == 'skip_stack_3x3conv_tanh':
+                outs = torch.cat((outs, x), 1)
+                outs = self.fuse_conv(outs)
+                return self.tanh(outs)
+            elif self.ptb_fuse_type == 'skip_tanh_avg':
+                return (x + self.tanh(outs)) / 2
+            elif self.ptb_fuse_type == 'skip_tanh_clamp':
+                return (x + self.tanh(outs)).clamp_(-1, 1)
+                # return (x + self.tanh(outs) / 2).clamp_(-1, 1)
         return self.tanh(outs)
 
 

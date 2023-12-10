@@ -3,12 +3,12 @@ task_name: counterfactual
 seed: 777
 sample_interval: 50
 
-n_epochs: 1000
+n_epochs: 150
 # epoch_steps: 800
 
-logging_dir: ./training_logs/counterfactual_ptb
-experiment_name: tsm_synth-large_r18_bs32_arch4_fp32-fr_bilinear_minc
-checkpoint_freq: 5
+logging_dir: ./training_logs/counterfactual_ptb_skipconn
+experiment_name: tsm_synth-large_r18_bs32_arch4_fp32-fr_bilinear_sc-123
+checkpoint_freq: 10
 eval_counter_freq: 10
 
 compute_norms: False
@@ -21,7 +21,7 @@ dataset:
   use_sampler: False
   num_workers: 28
   imagenet_norm: False # mean=[0.5], std=[0.5]
-  augs: [hflip, vflip, shift_scale_rotate]
+  augs: [] # only resize and norm
 
   # limit_scans: 10
   scan_params:
@@ -48,7 +48,7 @@ model:
   lambda_adv: 1.0
   lambda_kl: 1.0
   lambda_rec: 1.0
-  lambda_minc: 0.3
+  lambda_minc: 0
   # precision: 16-mixed
   precision: '32'
   
@@ -57,8 +57,9 @@ model:
   b1: 0.0
   b2: 0.999
   eps: 1.0E-7
-
+  
   # default setting
+  # encoder returns features [block_1(x), block_2(block_1(x)), ..., block_N(...)]
   enc_params:
     downsample_scales: [2, 2, 2, 2, 2]
     out_channels: [64, 128, 256, 512, 1024]
@@ -67,6 +68,8 @@ model:
     upsample_scales: [2, 2, 2, 2, 2]
     out_channels: [1024, 512, 256, 128, 64]
     upsample_kind: bilinear
+    # indices are specifided w.r.t bottleneck (index=0) and upwards
+    skip_conn: [1, 2, 3]
 
   disc_params:
     downsample_scales: [2, 2, 2, 2, 2, 1]

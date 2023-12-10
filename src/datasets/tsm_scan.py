@@ -227,9 +227,6 @@ class CTScan(torch.utils.data.Dataset):
             print(f'Unable to load {slice_index} slice - {self} ({index} dataset item)')
             exit()
 
-        # normalize image
-        scan_slice = self.norm(scan_slice, label_slice)
-
         # prepare masks
         masks = []
         if self.load_masks:
@@ -244,10 +241,12 @@ class CTScan(torch.utils.data.Dataset):
 
         # label determines whether an anomaly is present in the slice or not
         if self.synth_params:
+            scan_slice = (scan_slice + 1) / 2
             target_mask = masks[-1] if masks else label_slice.astype(np.uint8)
             label, scan_slice, anomaly_mask = self._augment_synthetic_anomaly(index, scan_slice, target_mask, bool(masks))
             if anomaly_mask is not None:
                 masks.append(anomaly_mask)
+            scan_slice = 2*scan_slice  - 1
         else:
             if self.labels is None and self.default_label is not None:
                 label = self.default_label
@@ -256,6 +255,7 @@ class CTScan(torch.utils.data.Dataset):
                 # print(len(self), self.labels.shape, index)
                 label = self.labels[index]
         sample = {'image': scan_slice, 'masks': masks}
+
         if self.transforms:
             sample = self.transforms(**sample)
 

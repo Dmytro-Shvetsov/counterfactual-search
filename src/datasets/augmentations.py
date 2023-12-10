@@ -41,13 +41,13 @@ def get_transforms(opt):
             [
                 *train_ops,
                 albu.Resize(*opt.img_size, cv2.INTER_LINEAR),
-                albu.Normalize(mean, std, max_pixel_value=max_pixel_value),
+                # albu.Normalize(mean, std, max_pixel_value=max_pixel_value),
             ]
         ),
         'val': albu.Compose(
             [
                 albu.Resize(*opt.img_size, cv2.INTER_LINEAR),
-                albu.Normalize(mean, std, max_pixel_value=max_pixel_value),
+                # albu.Normalize(mean, std, max_pixel_value=max_pixel_value),
             ]
         ),
     }
