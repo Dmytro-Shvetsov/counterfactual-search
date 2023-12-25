@@ -40,6 +40,7 @@ class CounterfactualCGAN(nn.Module):
         super().__init__(*args, **kwargs)
 
         self.opt = opt
+        self.img_size = img_size
         self.explain_class_idx = opt.explain_class_idx  # class id to be explained
         # generator and discriminator are conditioned against a discrete bin index which is computed
         # from the classifier probability for the explanation class using `posterior2bin` function
@@ -58,7 +59,7 @@ class CounterfactualCGAN(nn.Module):
         # Loss functions
         self.adv_loss = opt.get('adv_loss', 'mse')
         self.adversarial_loss = torch.nn.BCEWithLogitsLoss() if self.adv_loss else torch.nn.MSELoss()
-        self.minc_loss = torch.nn.SmoothL1Loss()
+        self.minc_loss = torch.nn.L1Loss()
         self.lambda_adv = opt.get('lambda_adv', 1.0)
         self.lambda_kl = opt.get('lambda_kl', 1.0)
         self.lambda_rec = opt.get('lambda_rec', 1.0)
@@ -80,6 +81,10 @@ class CounterfactualCGAN(nn.Module):
         self.norms = {'E': None, 'G': None, 'D': None}
         self.gen_loss_logs, self.disc_loss_logs = {}, {}
         self.fabric_setup = False
+
+    @property
+    def classifier_kind(self):
+        return self.opt.classifier_kind
 
     def prepare_fabric(self) -> None:
         self.fabric = L.Fabric(precision=self.opt.get('precision', '32'))
@@ -112,13 +117,13 @@ class CounterfactualCGAN(nn.Module):
         f_x_desired_discrete = posterior2bin(f_x_desired, self.num_bins)
         return f_x, f_x_discrete, f_x_desired, f_x_desired_discrete
 
-    def explanation_function(self, x, f_x_discrete, z=None):
+    def explanation_function(self, x, f_x_discrete, z=None, ret_features=False):
         """Computes I_f(x, c)"""
         if z is None:
             # get embedding of the input image
             z = self.enc(x)
         # reconstruct explanation images
-        gen_imgs = self.gen(z, f_x_discrete, x=x if self.ptb_based else None)
+        gen_imgs = self.gen(z, f_x_discrete, x=x if self.ptb_based else None, ret_features=ret_features)
         return gen_imgs
 
     def reconstruction_loss(self, real_imgs, gen_imgs, masks, f_x_discrete, f_x_desired_discrete, z=None):
@@ -150,6 +155,8 @@ class CounterfactualCGAN(nn.Module):
         return self.minc_loss(x, x_prime)
 
     def forward(self, batch, training=False, validation=False, compute_norms=False, global_step=None):
+        assert training and not validation or validation and not training
+
         # imgs are in [-1, 1] range
         imgs, labels, masks = batch['image'], batch['label'], batch['masks']
         batch_size = imgs.shape[0]

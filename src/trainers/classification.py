@@ -10,7 +10,9 @@ from src.datasets.augmentations import get_transforms
 from src.models.classifier import ClassificationModel
 from src.trainers.trainer import BaseTrainer
 from src.utils.generic_utils import save_model
-
+from flashtorch.utils import apply_transforms, load_image
+from flashtorch.utils import apply_transforms, load_image
+from flashtorch.saliency import Backprop
 
 class ClassificationTrainer(BaseTrainer):
     def __init__(self, opt: edict, model: ClassificationModel, continue_path: str = None) -> None:
@@ -34,7 +36,8 @@ class ClassificationTrainer(BaseTrainer):
 
     def restore_state(self):
         latest_ckpt = max(self.ckpt_dir.glob('*.pth'), key=lambda p: int(p.name.replace('.pth', '').split('_')[1]))
-        state = torch.load(latest_ckpt)
+        load_ckpt = latest_ckpt if self.ckpt_name is None else (self.ckpt_dir / self.ckpt_name)
+        state = torch.load(load_ckpt)
         self.batches_done = state['step']
         self.current_epoch = state['epoch']
         self.model.load_state_dict(state['model'], strict=True)

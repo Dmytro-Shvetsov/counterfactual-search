@@ -95,13 +95,17 @@ class ResBlocksGenerator(nn.Module):
         assert len(upsample_scales) == len(out_channels)
 
         self.skip_conn = set(skip_conn or [])
-        
         in_channels = in_channels[::-1]
+        
+        print('Generator in channels', in_channels)
+        print('Generator out channels', out_channels)
         if skip_conn is None:
             in_channels = [in_channels[0]] + [out_channels[i-1] for i in range(1, self.n_blocks)]
         else:
             in_channels = [in_channels[0]] + [out_channels[i-1] + (in_channels[i] if i in self.skip_conn else 0) for i in range(1, self.n_blocks)]
 
+        print('Generator in channels', in_channels)
+        print('Generator out channels', out_channels)
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.blocks = nn.ModuleList(
@@ -135,21 +139,30 @@ class ResBlocksGenerator(nn.Module):
     def initialize(self):
         nn.init.xavier_uniform_(self.last_block[2].weight, torch.tensor(1.0))
 
-    def forward(self, features, labels, x=None):
-        B = labels.shape[0]
-        features = features[::-1] # revert the features to begin with encoder head
-        outs = features[0] # latent variable `z`; (B, 1024, 8, 8) for img_shape=(256, 256)
+    def forward(self, enc_features, labels, x=None, ret_features=False):
+        enc_features = enc_features[::-1] # revert the enc_features to begin with encoder head
+        outs = enc_features[0] # latent variable `z`; (B, 1024, 8, 8) for img_shape=(256, 256)
+        
+        dec_features = {}
         for i, b in enumerate(self.blocks):
+            # print(outs.shape)
             if i > 0 and i in self.skip_conn:
-                outs = torch.cat((outs, features[i]), 1)
+                # print('stack', enc_features[i].shape)
+                outs = torch.cat((outs, enc_features[i]), 1)
             outs = b(outs, labels)
+            if ret_features:
+                dec_features[f'dec_block_{i}'] = outs
         outs = self.last_block(outs)
+        if ret_features: dec_features['dec_last_block'] = outs
+        outs = self._build_img(outs, x)
+        return outs if not ret_features else (outs, dec_features)
+
+    def _build_img(self, outs, x=None):
         if x is not None:
             if self.ptb_fuse_type == 'skip_add_tanh':
                 outs = outs + x
                 return self.tanh(outs)
             elif self.ptb_fuse_type == 'skip_add_l2_tanh':
-                # norms = torch.norm(outs.view(B, -1), dim=1, keepdim=True)
                 norms = torch.norm(outs, dim=(2, 3), keepdim=True)
                 outs = outs / norms.clamp(min=1.0)
                 return self.tanh(outs + x)

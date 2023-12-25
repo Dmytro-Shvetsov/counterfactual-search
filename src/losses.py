@@ -58,3 +58,19 @@ def loss_hinge_dis(dis_fake, dis_real):
 
 def loss_hinge_gen(dis_fake):
     return -dis_fake.mean()
+
+
+def tv_loss(img):
+    """
+    Compute total variation loss.
+
+    Inputs:
+    - img: PyTorch Variable of shape (B, C, H, W) holding an input image.
+
+    Returns:
+    - loss: PyTorch Variable holding a scalar giving the total variation loss
+      for img weighted by tv_weight.
+    """
+    w_variance = torch.mean(torch.pow(img[:, :, :, :-1] - img[:, :, :, 1:], 2), dim=(1, 2, 3))
+    h_variance = torch.mean(torch.pow(img[:, :, :-1, :] - img[:, :, 1:, :], 2), dim=(1, 2, 3))
+    return torch.mean(h_variance + w_variance)

@@ -38,18 +38,19 @@ class CounterfactualTrainer(BaseTrainer):
 
     def restore_state(self):
         latest_ckpt = max(self.ckpt_dir.glob('*.pth'), key=lambda p: int(p.name.replace('.pth', '').split('_')[1]))
-        state = torch.load(latest_ckpt)
+        load_ckpt = latest_ckpt if self.ckpt_name is None else (self.ckpt_dir / self.ckpt_name)
+        state = torch.load(load_ckpt)
         self.batches_done = state['step']
         self.current_epoch = state['epoch']
         self.model.load_state_dict(state['model'], strict=True)
         self.model.optimizer_G.load_state_dict(state['optimizers'][0])
         self.model.optimizer_D.load_state_dict(state['optimizers'][1])
-        self.logger.info(f"Restored checkpoint {latest_ckpt} ({state['date']})")
+        self.logger.info(f"Restored checkpoint {load_ckpt} ({state['date']})")
 
     def save_state(self) -> str:
         return save_model(self.opt, self.model, (self.model.optimizer_G, self.model.optimizer_D), self.batches_done, self.current_epoch, self.ckpt_dir)
 
-    def get_dataloaders(self, ret_cf_labels:bool=False, skip_cf_sampler=False) -> tuple:
+    def get_dataloaders(self, ret_cf_labels:bool=False, skip_cf_sampler=True) -> tuple:
         transforms = get_transforms(self.opt.dataset)
         if self.opt.task_name == 'counterfactual' and not skip_cf_sampler: # NB
             # compute sampler labels to create batches with uniformly distributed labels
@@ -164,8 +165,8 @@ class CounterfactualTrainer(BaseTrainer):
             gen_cf_fx = self.model.explanation_function(real_imgs, real_f_x_discrete)
             # print(real_f_x_discrete.shape, gen_cf_fx.shape, real_imgs.shape)
 
-            # computes I_f(x, c)
-            gen_f_x, gen_f_x_discrete, gen_f_x_desired, gen_f_x_desired_discrete = self.model.posterior_prob(gen_cf_c)
+            # computes f(x_c)
+            gen_f_x, gen_f_x_discrete, _, _ = self.model.posterior_prob(gen_cf_c)
             # our prediction is the classifier's label for the generated images given the desired posterior probability
             cv_y_pred.extend(gen_f_x_discrete.cpu().squeeze(1).numpy())
             posterior_pred.extend(gen_f_x.cpu().squeeze(1).numpy())
@@ -190,7 +191,7 @@ class CounterfactualTrainer(BaseTrainer):
             self.val_iou_xfx.update(diff2_seg[abnormal_mask].view(B, -1), cf_gt_masks[abnormal_mask].view(B, -1))
             
             # diff3 = (real_imgs[0] - gen_cf_fx[0]).abs() # [0; 1] values
-
+ 
             vis = torch.stack((
                 real_imgs[0], cf_gt_masks[0].unsqueeze(0), torch.zeros_like(real_imgs[0]), 
                 gen_cf_c[0], diff[0], diff_seg[0],
