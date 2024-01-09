@@ -21,12 +21,15 @@ class BaseTrainer:
         self.batches_done = 0
         self.current_epoch = 0
 
-        continue_path = Path(continue_path)
-        if continue_path.suffix == '.pth':
+        continue_path = Path(continue_path) if continue_path else None
+        if continue_path and continue_path.suffix == '.pth':
             self.logging_dir = continue_path.parent.parent
             self.ckpt_name = continue_path.name
+        elif continue_path:
+            self.logging_dir = Path(continue_path)
+            self.ckpt_name = None
         else:
-            self.logging_dir = get_experiment_folder_path(opt.logging_dir, opt.model.kind, opt.get('experiment_name', 'exp'))
+            self.logging_dir = Path(get_experiment_folder_path(opt.logging_dir, opt.model.kind, opt.get('experiment_name', 'exp')))
             self.ckpt_name = None
         self.vis_dir = self.logging_dir / 'visualizations'
         self.ckpt_dir = self.logging_dir / 'checkpoints'

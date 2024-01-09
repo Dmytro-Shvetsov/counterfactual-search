@@ -4,8 +4,8 @@ from torch import nn
 from tqdm import tqdm
 from torchvision.utils import save_image
 from src.models.cgan.counterfactual_inpainting_cgan import CounterfactualInpaintingCGAN
+from src.visualizations import confmat_vis_img
 from .counterfactual import CounterfactualTrainer
-
 
 class CounterfactualInpaintingTrainer(CounterfactualTrainer):
     @torch.no_grad()
@@ -30,24 +30,6 @@ class CounterfactualInpaintingTrainer(CounterfactualTrainer):
             self.model: CounterfactualInpaintingCGAN
             real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = self.model.posterior_prob(real_imgs)
 
-            # print('pred', real_f_x)
-            # print('pred', real_f_x_discrete)
-            
-            # print('desired', real_f_x_desired)
-            # print('desired', real_f_x_desired_discrete)
-            # pos_group = real_f_x_discrete.bool()
-            # if not pos_group.any():
-                # continue
-
-            # filter out samples not belonging to either real negative or positive groups
-            # real_imgs, cf_gt_masks, labels = real_imgs[pos_group], cf_gt_masks[pos_group], labels[pos_group.cpu()]
-            # real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = (
-            #     real_f_x[pos_group],
-            #     real_f_x_discrete[pos_group],
-            #     real_f_x_desired[pos_group],
-            #     real_f_x_desired_discrete[pos_group],
-            # )
-
             # our ground truth is the `flipped` labels
             cv_y_true.extend(real_f_x_desired_discrete.cpu().squeeze(1).numpy())
             posterior_true.extend(real_f_x.cpu().squeeze(1).numpy())
@@ -55,10 +37,6 @@ class CounterfactualInpaintingTrainer(CounterfactualTrainer):
 
             # computes I_f(x, c)
             gen_cf_c = self.model.explanation_function(real_imgs, real_f_x_desired_discrete)
-            
-            # computes I_f(x, f(x))
-            # gen_cf_fx = self.model.explanation_function(real_imgs, real_f_x_discrete)
-            # print(real_f_x_discrete.shape, gen_cf_fx.shape, real_imgs.shape)
 
             # computes f(x_c)
             gen_f_x, gen_f_x_discrete, _, _ = self.model.posterior_prob(gen_cf_c)
@@ -69,7 +47,6 @@ class CounterfactualInpaintingTrainer(CounterfactualTrainer):
             # denorm values from [-1; 1] to [0, 1] range, B x 1 x H x W
             real_imgs.add_(1).div_(2)
             gen_cf_c.add_(1).div_(2)
-            # gen_cf_fx.add_(1).div_(2)
 
             # compute difference maps, threshold and compute IoU
             # |x - x_c|
@@ -82,13 +59,18 @@ class CounterfactualInpaintingTrainer(CounterfactualTrainer):
                 # print(abnormal_mask.shape, diff_seg.shape, diff_seg[abnormal_mask].shape)
                 self.val_iou_xc.update(diff_seg[abnormal_mask].squeeze(1), cf_gt_masks[abnormal_mask])
 
+            vis_confmat = confmat_vis_img(cf_gt_masks[0].unsqueeze(0).unsqueeze(0), diff_seg[0].unsqueeze(0), normalized=True)[0]
             vis = torch.stack((
-                real_imgs[0], cf_gt_masks[0].unsqueeze(0), torch.zeros_like(real_imgs[0]), 
+                real_imgs[0], torch.zeros_like(real_imgs[0]), torch.zeros_like(real_imgs[0]), 
                 gen_cf_c[0], diff[0], diff_seg[0],
-                # gen_cf_fx[0], diff2[0], diff2_seg[0],
-            ), dim=0)
+            ), dim=0).permute(0, 2, 3, 1)
+            vis = torch.cat((vis, vis, vis), 3)
+            vis[1] = 0.3*vis[0] + 0.7 * vis_confmat
+            vis[2] = vis_confmat
+            vis = vis.permute(0, 3, 1, 2)
+            
             # save first example for visualization
-            vis_path = self.cf_vis_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.jpg' % (
+            vis_path = self.cf_vis_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.png' % (
                 self.current_epoch, i, labels[0], real_f_x_desired_discrete[0][0], gen_f_x_discrete[0][0])
             )
             save_image(vis.data, vis_path, nrow=3, normalize=False) # value_range=(-1, 1))
@@ -114,9 +96,11 @@ class CounterfactualInpaintingTrainer(CounterfactualTrainer):
         self.logger.info(f'Counterfactual accuracy = {cacc} (num_samples={len(cv_y_pred)})')
 
         posterior_true, posterior_pred = np.array(posterior_true), np.array(posterior_pred)
+        # considering a flip rate from positives to negatives only where f(x) > tau
+        pos_true_mask = posterior_true > tau
         # Counterfactual Validity Score
-        cv_score = np.mean(np.abs(posterior_true - posterior_pred) > tau)
-        self.logger.info(f'CV(X, Xc) = {cv_score:.3f} (τ={tau}, num_samples={num_samples})')
+        cv_score = np.mean(np.abs(posterior_true - posterior_pred)[pos_true_mask] > tau)
+        self.logger.info(f'CV(X, Xc) = {cv_score:.3f} (τ={tau}, num_samples={pos_true_mask.sum()})')
 
         cf_iou_xc = self.val_iou_xc.compute().item()
         self.val_iou_xc.reset()

@@ -22,7 +22,7 @@ parser.add_argument('-c', '--config_path', type=str, required=True, help='Config
 parser.add_argument('-od', '--output_dir', type=str, required=True, help='Output directory where to write the visualizations')
 parser.add_argument('-st', '--step_size', type=int, default=10, help='Every nth record to be visualized')
 parser.add_argument('-s', '--sampling_only', action='store_true', default=False, help='Visualize only dataset examples where the sampler ')
-parser.add_argument('-na', '--no_aug', action='store_true', default=False, help='Visualize only dataset examples where the sampler ')
+parser.add_argument('-na', '--no_aug', action='store_true', default=False, help='Disable augmentations for visualization')
 parser.add_argument('-la', '--label_agg_order', nargs='+', type=int, help='The order at which to overlay the classes masks.')
 opt = parser.parse_args()
 
@@ -39,7 +39,7 @@ def visualize_dataset(dataset:torch.utils.data.Dataset, out_dir:str, step:int=10
         s = dataset[i]
         assert s['masks'].shape[0] > 0, f'No masks are loaded in the dataset: {dataset}'
         
-        name = dataset.split + '_' + s.get('scan_name', 'sample').split('.')[0]
+        name = dataset.split + '_' + s.get('scan_name', 'sample').split('.')[0] + '_label_' + str(s['label'].item())
 
         img = ((s['image'][0].numpy() + 1) / 2) * 255
         img = np.stack([img.astype(np.uint8)]*3, -1)

@@ -11,6 +11,7 @@ from torchsampler import ImbalancedDatasetSampler
 from src.datasets.kits_dataset import KITSDataset
 from src.datasets.lungs import LungsDataset
 from src.datasets.tsm_synth_dataset import TSMSyntheticDataset
+from src.datasets.tuh_dataset import TUHDataset
 from src.utils.generic_utils import seed_everything
 
 
@@ -24,6 +25,8 @@ def build_dataset(kind: str, root_dir: Path, split: str, transforms:albu.Compose
         return TSMSyntheticDataset(root_dir, split, transforms=transforms, limit_scans=kwargs.get('limit_scans', 999999), **scan_params)
     elif kind == 'kits':
         return KITSDataset(root_dir, split, transforms=transforms, **scan_params, **kwargs)
+    elif kind == 'tuh':
+        return TUHDataset(root_dir, split, transforms=transforms, **scan_params, **kwargs)
     elif kind == 'merged':
         return MergedDataset(split, transforms, kwargs['datasets'])
     else:

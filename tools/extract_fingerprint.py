@@ -20,6 +20,7 @@ logging.basicConfig(level=logging.INFO)
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config_path', type=str, required=True, help='Configuration file path to start training from scratch')
 parser.add_argument('-o', '--output_json_path', type=str, default='dataset_fingerprint.json', help='Output JSON path to save the results')
+parser.add_argument('-fg', '--foreground_labels', type=int, nargs='+', default=[], help='Labels to be considered a foreground for computing the stats')
 opt = parser.parse_args()
 
 
@@ -56,7 +57,7 @@ def analyze_case(image_data: np.ndarray, segmentation_data:np.ndarray, slicing_d
     return collect_foreground_intensities(image_data, segmentation_data, num_samples)
 
             
-def extract_fingerprint(datasets:list[torch.utils.data.Dataset], output_json_path:str) -> None:
+def extract_fingerprint(datasets:list[torch.utils.data.Dataset], output_json_path:str, foreground_labels:list[int] = None) -> None:
     intencities_per_channel = []
     num_scans = sum(len(d.scans) for d in datasets)
     num_fg_samples_per_case = int(10e7 // num_scans)
@@ -68,9 +69,13 @@ def extract_fingerprint(datasets:list[torch.utils.data.Dataset], output_json_pat
         for s in tqdm(scans):
             # clipping is done to filter out possible false positives produced by nnUNet in totalsegmentor dataset
             segm = s.segm.clip(0, len(s.classes) - 1)
+            if foreground_labels:
+                remove_labels = [i for i in range(len(s.classes) - 1) if i not in foreground_labels]
+                for lb in remove_labels:
+                    segm[segm == lb] = 0
             intencities = analyze_case(s.scan, segm, s.slicing_dim, num_fg_samples_per_case)
             intencities_per_channel.extend(intencities)
-    
+
     fingerprint = {
         'mean': float(np.mean(intencities_per_channel)),
         'median': float(np.median(intencities_per_channel)),
@@ -107,7 +112,7 @@ def main(args):
 
     logging.info(f'Total number of samples: {len(train_loader.dataset) + len(test_loader.dataset)}')
     logging.info('Extracting fingerprint...')
-    json_path = extract_fingerprint([train_loader.dataset, test_loader.dataset], args.output_json_path)
+    json_path = extract_fingerprint([train_loader.dataset, test_loader.dataset], args.output_json_path, args.foreground_labels)
     logging.info(f'Saved the dataset fingerprint at: {json_path}')
 
 
