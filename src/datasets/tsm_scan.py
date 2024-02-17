@@ -96,6 +96,7 @@ class CTScan(torch.utils.data.Dataset):
         synth_params: dict = None,
         load_masks: Union[bool, list] = False,
         default_label: int = None,
+        blur_background_sigma: int = None,
     ):
         super().__init__()
         self.min_max_norm = min_max_normalization
@@ -150,6 +151,7 @@ class CTScan(torch.utils.data.Dataset):
             if self.slice_indices is not None:
                 self.labels = self.labels[self.slice_indices]
         self.default_label = default_label
+        self.blur_background_sigma = blur_background_sigma
         self.norm = get_normalization_scheme(**norm_scheme)
 
     def load_volume(self, scan_path: Path, dtype=np.int32) -> np.ndarray:
@@ -254,6 +256,14 @@ class CTScan(torch.utils.data.Dataset):
                 assert self.classify_labels is not None, 'Unable to determine the anomaly label for the slice. Set synthetic augmentation of classify_labels parameters'
                 # print(len(self), self.labels.shape, index)
                 label = self.labels[index]
+        
+        if self.blur_background_sigma is not None:
+            assert self.load_masks
+            bg_mask = masks[0]
+            bg_mask = cv2.erode(bg_mask, np.ones((30, 30), np.uint8), iterations=1, borderValue=0, borderType=cv2.BORDER_CONSTANT).astype(bool)
+            bg_blur = cv2.GaussianBlur(scan_slice, (5, 5), self.blur_background_sigma)
+            scan_slice[bg_mask] = bg_blur[bg_mask]
+        
         sample = {'image': scan_slice, 'masks': masks}
 
         if self.transforms:

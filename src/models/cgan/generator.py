@@ -39,7 +39,7 @@ class Generator(nn.Module):
 class ResBlocksEncoder(nn.Module):
     """Table 5(a) - https://arxiv.org/pdf/2101.04230v3.pdf"""
 
-    def __init__(self, in_channels=1, downsample_scales=[2, 2, 2, 2, 2], out_channels=[64, 128, 256, 512, 1024]):
+    def __init__(self, in_channels=1, downsample_scales=[2, 2, 2, 2, 2], out_channels=[64, 128, 256, 512, 1024], use_snconv=True):
         super().__init__()
         assert len(downsample_scales) == len(out_channels)
         self.n_blocks = len(out_channels)
@@ -53,15 +53,16 @@ class ResBlocksEncoder(nn.Module):
         )
         self.blocks = nn.ModuleList(
             [
-                blocks.EncoderResBlock(64, out_channels[0], downsample_scales[0]),
+                blocks.EncoderResBlock(64, out_channels[0], downsample_scales[0], use_snconv=use_snconv),
                 *(
-                    blocks.EncoderResBlock(out_channels[i-1], out_channels[i], downsample_scales[i])
+                    blocks.EncoderResBlock(out_channels[i-1], out_channels[i], downsample_scales[i], use_snconv=use_snconv)
                     for i in range(1, self.n_blocks)
                 ),
             ]
         )
         self.latent_dim = out_channels[-1]
         self.initialize()
+        print('Using SNConv in generator:', use_snconv)
         # print('Initialized encoder')
         # print(self)
 
@@ -89,6 +90,7 @@ class ResBlocksGenerator(nn.Module):
         upsample_kind='nearest',
         skip_conn=None,
         ptb_fuse_type='skip_add_tanh',
+        use_snconv=True,
     ):
         super().__init__()
         self.n_blocks = len(out_channels)
@@ -97,8 +99,8 @@ class ResBlocksGenerator(nn.Module):
         self.skip_conn = set(skip_conn or [])
         in_channels = in_channels[::-1]
         
-        print('Generator in channels', in_channels)
-        print('Generator out channels', out_channels)
+        # print('Generator in channels', in_channels)
+        # print('Generator out channels', out_channels)
         if skip_conn is None:
             in_channels = [in_channels[0]] + [out_channels[i-1] for i in range(1, self.n_blocks)]
         else:
@@ -106,13 +108,16 @@ class ResBlocksGenerator(nn.Module):
 
         print('Generator in channels', in_channels)
         print('Generator out channels', out_channels)
+        print('Using SNConv in generator:', use_snconv)
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.blocks = nn.ModuleList(
             [
-                blocks.GeneratorResBlock(n_classes, in_channels[0], out_channels[0], scale_factor=upsample_scales[0], upsample_kind=upsample_kind),
+                blocks.GeneratorResBlock(n_classes, in_channels[0], out_channels[0], 
+                                         scale_factor=upsample_scales[0], upsample_kind=upsample_kind, use_snconv=use_snconv),
                 *(
-                    blocks.GeneratorResBlock(n_classes, in_channels[i], out_channels[i], scale_factor=upsample_scales[i], upsample_kind=upsample_kind)
+                    blocks.GeneratorResBlock(n_classes, in_channels[i], out_channels[i], 
+                                             scale_factor=upsample_scales[i], upsample_kind=upsample_kind, use_snconv=use_snconv)
                     for i in range(1, self.n_blocks)
                 ),
             ]

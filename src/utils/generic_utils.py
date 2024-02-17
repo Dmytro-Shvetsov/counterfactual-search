@@ -11,13 +11,18 @@ import torch
 
 
 def seed_everything(seed: int):
-    random.seed(seed)
+    import random, os
+    import numpy as np
+    import torch
     os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
+    random.seed(seed)
     np.random.seed(seed)
+    torch.use_deterministic_algorithms(True, warn_only=True)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = False
 
 
 def get_commit_hash():

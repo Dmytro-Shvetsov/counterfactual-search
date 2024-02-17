@@ -1,0 +1,91 @@
+task_name: counterfactual
+
+seed: 777
+sample_interval: 50
+
+n_epochs: 151
+# epoch_steps: 800
+
+logging_dir: ./training_logs/paper_experiments_reproduce/synth_ptb_skip_connections
+experiment_name: tsm_synth-large_r18_bs16_arch4_fp32-fr_nearest_sc-1234_fix-prepr_df-fuse_no_sc
+checkpoint_freq: 10
+eval_counter_freq: 10
+
+compute_norms: False
+
+dataset:
+  kind: totalsegmentor
+  root_dir: ./data/totalsegmentor # 1804 * 64 slices in totalsegmentor dataset
+  batch_size: 16
+  img_size: [256, 256] # hxw
+  use_sampler: False
+  num_workers: 28
+  imagenet_norm: False # mean=[0.5], std=[0.5]
+  augs: [] # only resize and norm
+
+  # limit_scans: 10
+  scan_params:
+    load_masks: True
+    slicing_direction: axial
+    classes: ['empty', 'kidney']
+    sampling_class: ['kidney']
+    filter_class_slices: ['kidney']
+    filter_class_slices_thresh: 32
+
+    synth_params:
+      p: 0.65
+      size: 20
+      sigma: 0.4
+      mask_thresh: 0.25
+
+    norm_scheme: &norm
+      kind: ct
+      rescale: True
+      fingerprint_path: data/totalsegmentor/dataset_fingerprint.json
+
+model:
+  kind: counterfactual_lungs_cgan
+  ptb_based: True # perturbation based generator
+  in_channels: 1
+  gen_update_freq: 5
+  adv_loss: mse
+  lambda_adv: 1.0
+  lambda_kl: 1.0
+  lambda_rec: 1.0
+  lambda_minc: 0.0
+  # precision: 16-mixed
+  precision: '32'
+  
+  # optimizers' parameters
+  lr: 0.0002
+  b1: 0.0
+  b2: 0.999
+  # eps: 1.0E-7
+  
+  # default setting
+  # encoder returns features [block_1(x), block_2(block_1(x)), ..., block_N(...)]
+  enc_params:
+    downsample_scales: [2, 2, 2, 2, 2]
+    out_channels: [64, 128, 256, 512, 1024]
+
+  gen_params:
+    upsample_scales: [2, 2, 2, 2, 2]
+    out_channels: [1024, 512, 256, 128, 64]
+    upsample_kind: nearest
+    # indices are specifided w.r.t bottleneck (index=0) and upwards
+    # skip_conn: [1, 2, 3, 4]
+
+  disc_params:
+    downsample_scales: [2, 2, 2, 2, 2, 1]
+    out_channels: [64, 128, 256, 512, 1024, 1024]
+
+  # counterfactual parameters
+  num_bins: 2 # number of discrete bins into which posterior probabilities are sorted
+  explain_class_idx: 0 # normal/not-normal kidneys
+
+  # classifier parameters
+  classifier_kind: resnet18
+  n_classes: 1 # number of classes in the classifier
+  classifier_ckpt: training_logs/classification/resnet18-December-10-2023_09+41PM-404cae4-tsm_synth-large_ctnorm_r18_fixaug/checkpoints/checkpoint_15.pth
+
+

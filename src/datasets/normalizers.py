@@ -54,6 +54,28 @@ class CTNormalization(ImageNormalization):
         return image
 
 
+class CTWindowNormalization(ImageNormalization):
+    def __init__(self, rescale=False, use_mask_for_norm: bool = None, fingerprint_path: str = None, target_dtype: Type[number] = np.float32):
+        super().__init__(use_mask_for_norm, fingerprint_path, target_dtype)
+        self.rescale = rescale
+    
+    @staticmethod
+    def scale_array(unscaled, to_min, to_max, from_min, from_max):
+        return (to_max - to_min) * (unscaled - from_min) / (from_max - from_min) + to_min
+    
+    def __call__(self, image: np.ndarray, seg: np.ndarray = None) -> np.ndarray:
+        assert self.intensity_properties is not None, "CTNormalization requires intensity properties"
+        image = image.astype(self.target_dtype)
+        lower_bound = self.intensity_properties['percentile_00_5']
+        upper_bound = self.intensity_properties['percentile_99_5']
+        image = np.clip(image, lower_bound, upper_bound)
+        
+        if self.rescale:
+            # [-1; 1] range
+            image = self.scale_array(image, -1.0, 1.0, lower_bound, upper_bound)
+        return image
+
+
 class MinMaxNormalization(ImageNormalization):
     def __call__(self, image: np.ndarray, seg: np.ndarray = None) -> np.ndarray:
         clip_range = np.percentile(image, q=0.05), np.percentile(image, q=99.5)
@@ -73,6 +95,8 @@ def get_normalization_scheme(kind:str, *args, **kwargs):
         return MinMaxNormalization(*args, **kwargs)
     elif kind == 'ct':
         return CTNormalization(*args, **kwargs)
+    elif kind == 'ct-window':
+        return CTWindowNormalization(*args, **kwargs)
     elif kind == 'identity':
         return NoNormalization(*args, **kwargs)
     else:

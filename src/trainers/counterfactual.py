@@ -11,6 +11,7 @@ from torchmetrics.classification import BinaryJaccardIndex
 from torchvision.utils import save_image
 from tqdm import tqdm
 
+from src.visualizations import confmat_vis_img
 from src.datasets import get_dataloaders
 from src.datasets.augmentations import get_transforms
 from src.models.cgan import CounterfactualCGAN
@@ -23,9 +24,12 @@ from src.utils.generic_utils import save_model
 class CounterfactualTrainer(BaseTrainer):
     def __init__(self, opt: edict, model: CounterfactualCGAN, continue_path: str = None) -> None:
         super().__init__(opt, model, continue_path)
-        self.cf_vis_dir = self.logging_dir / 'counterfactuals'
-        self.cf_vis_dir.mkdir(exist_ok=True)
+        self.cf_vis_dir_train = self.logging_dir / 'counterfactuals/train'
+        self.cf_vis_dir_train.mkdir(exist_ok=True, parents=True)
         
+        self.cf_vis_dir_val = self.logging_dir / 'counterfactuals/val'
+        self.cf_vis_dir_val.mkdir(exist_ok=True)
+
         self.compute_norms = self.opt.get('compute_norms', False)
         # 64, 192, 768, 2048
         self.fid_features = opt.get('fid_features', 768)
@@ -81,13 +85,16 @@ class CounterfactualTrainer(BaseTrainer):
                 outs = self.model(batch, training=True, compute_norms=sample_step and self.compute_norms, global_step=self.batches_done)
                 stats.update(outs['loss'])
                 if sample_step:
-                    save_image(outs['gen_imgs'][:16].data, self.vis_dir / ('%d_train_%d.jpg' % (self.current_epoch, i)), nrow=4, normalize=True)
+                    if self.opt.get('log_visualizations', True):
+                        save_image(outs['gen_imgs'][:16].data, self.vis_dir / ('%d_train_%d.jpg' % (self.current_epoch, i)), nrow=4, normalize=True)
                     postf = '[Batch %d/%d] [D loss: %f] [G loss: %f]' % (i, len(loader), outs['loss']['d_loss'], outs['loss']['g_loss'])
                     prog.set_postfix_str(postf, refresh=True)
                     if self.compute_norms:
                         for model_name, norms in self.model.norms.items():
                             self.logger.log(norms, self.batches_done, f'{model_name}_gradients_norm')
         epoch_stats = stats.average()
+        if self.current_epoch % self.opt.eval_counter_freq == 0:
+            epoch_stats.update(self.evaluate_counterfactual(loader, phase='train'))
         self.logger.log(epoch_stats, self.current_epoch, 'train')
         self.logger.info(
             '[Finished training epoch %d/%d] [Epoch D loss: %f] [Epoch G loss: %f]'
@@ -110,7 +117,7 @@ class CounterfactualTrainer(BaseTrainer):
         self.logger.info('[Average positives/negatives ratio in batch: %f]' % round(avg_pos_to_neg_ratio.item() / len(loader), 3))
         epoch_stats = stats.average()
         if self.current_epoch % self.opt.eval_counter_freq == 0:
-            epoch_stats.update(self.evaluate_counterfactual(loader))
+            epoch_stats.update(self.evaluate_counterfactual(loader, phase='val'))
         self.logger.log(epoch_stats, self.current_epoch, 'val')
         self.logger.info(
             '[Finished validation epoch %d/%d] [Epoch D loss: %f] [Epoch G loss: %f]'
@@ -119,9 +126,10 @@ class CounterfactualTrainer(BaseTrainer):
         return epoch_stats
 
     @torch.no_grad()
-    def evaluate_counterfactual(self, loader, tau=0.8, skip_fid=False):
+    def evaluate_counterfactual(self, loader, phase='val', tau=0.8, skip_fid=False):
         self.model.eval()
 
+        cf_dir = self.cf_vis_dir_train if phase == 'train' else self.cf_vis_dir_val
         classes = []
         cv_y_true, cv_y_pred = [], []
         posterior_true, posterior_pred = [], []
@@ -180,25 +188,31 @@ class CounterfactualTrainer(BaseTrainer):
             # |x - x_c|
             diff = (real_imgs - gen_cf_c).abs() # [0; 1] values
             diff_seg = (diff > self.cf_threshold).byte()
-            abnormal_mask = labels.bool()
-            pred_num_abnormal_samples += abnormal_mask.sum()
-            # print(real_imgs.shape, gen_cf_c.shape, gen_cf_fx.shape, diff_seg.shape, cf_gt_masks.shape)
-            self.val_iou_xc.update(diff_seg[abnormal_mask].view(B, -1), cf_gt_masks[abnormal_mask].view(B, -1))
-
+            
             # |x_fx - x_c|
             diff2 = (gen_cf_fx - gen_cf_c).abs() # [0; 1] values
             diff2_seg = (diff2 > self.cf_threshold).byte()
-            self.val_iou_xfx.update(diff2_seg[abnormal_mask].view(B, -1), cf_gt_masks[abnormal_mask].view(B, -1))
+            
+            abnormal_mask = labels.bool()
+            if abnormal_mask.any():
+                pred_num_abnormal_samples += abnormal_mask.sum()
+                self.val_iou_xc.update(diff_seg[abnormal_mask].squeeze(1), cf_gt_masks[abnormal_mask].squeeze(1))
+                self.val_iou_xfx.update(diff2_seg[abnormal_mask].squeeze(1), cf_gt_masks[abnormal_mask].squeeze(1))
             
             # diff3 = (real_imgs[0] - gen_cf_fx[0]).abs() # [0; 1] values
- 
             vis = torch.stack((
-                real_imgs[0], cf_gt_masks[0].unsqueeze(0), torch.zeros_like(real_imgs[0]), 
+                real_imgs[0], torch.zeros_like(real_imgs[0]), torch.zeros_like(real_imgs[0]), 
                 gen_cf_c[0], diff[0], diff_seg[0],
                 gen_cf_fx[0], diff2[0], diff2_seg[0],
-            ), dim=0)
+            ), dim=0).permute(0, 2, 3, 1)
+            vis = torch.cat((vis, vis, vis), 3)
+            vis_confmat = confmat_vis_img(cf_gt_masks[0].unsqueeze(0).unsqueeze(0), diff_seg[0].unsqueeze(0), normalized=True)[0]
+            vis[1] = 0.3*vis[0] + 0.7 * vis_confmat
+            vis[2] = vis_confmat
+            vis = vis.permute(0, 3, 1, 2)
+            
             # save first example for visualization
-            vis_path = self.cf_vis_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.jpg' % (
+            vis_path = cf_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.jpg' % (
                 self.current_epoch, i, labels[0], real_f_x_desired_discrete[0][0], gen_f_x_discrete[0][0])
             )
             save_image(vis.data, vis_path, nrow=3, normalize=False) # value_range=(-1, 1))

@@ -9,9 +9,10 @@ from .counterfactual import CounterfactualTrainer
 
 class CounterfactualInpaintingTrainer(CounterfactualTrainer):
     @torch.no_grad()
-    def evaluate_counterfactual(self, loader, tau=0.8, skip_fid=False):
+    def evaluate_counterfactual(self, loader, phase='val', tau=0.8, skip_fid=False):
         self.model.eval()
-
+        
+        cf_dir = self.cf_vis_dir_train if phase == 'train' else self.cf_vis_dir_val
         classes = []
         cv_y_true, cv_y_pred = [], []
         posterior_true, posterior_pred = [], []
@@ -55,8 +56,6 @@ class CounterfactualInpaintingTrainer(CounterfactualTrainer):
             abnormal_mask = labels.bool()
             if abnormal_mask.any():
                 pred_num_abnormal_samples += abnormal_mask.sum()
-                # print(real_imgs.shape, gen_cf_c.shape, gen_cf_fx.shape, diff_seg.shape, cf_gt_masks.shape)
-                # print(abnormal_mask.shape, diff_seg.shape, diff_seg[abnormal_mask].shape)
                 self.val_iou_xc.update(diff_seg[abnormal_mask].squeeze(1), cf_gt_masks[abnormal_mask])
 
             vis_confmat = confmat_vis_img(cf_gt_masks[0].unsqueeze(0).unsqueeze(0), diff_seg[0].unsqueeze(0), normalized=True)[0]
@@ -70,7 +69,7 @@ class CounterfactualInpaintingTrainer(CounterfactualTrainer):
             vis = vis.permute(0, 3, 1, 2)
             
             # save first example for visualization
-            vis_path = self.cf_vis_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.png' % (
+            vis_path = cf_dir / (f'epoch_%d_counterfactual_%d_label_%d_true_%d_pred_%d.png' % (
                 self.current_epoch, i, labels[0], real_f_x_desired_discrete[0][0], gen_f_x_discrete[0][0])
             )
             save_image(vis.data, vis_path, nrow=3, normalize=False) # value_range=(-1, 1))
@@ -105,10 +104,6 @@ class CounterfactualInpaintingTrainer(CounterfactualTrainer):
         cf_iou_xc = self.val_iou_xc.compute().item()
         self.val_iou_xc.reset()
         self.logger.info(f'IoU(S, Sc) = {cf_iou_xc:.3f} (cf_thresh={self.cf_threshold}, num_samples={pred_num_abnormal_samples}, mask={self.cf_gt_seg_mask_idx})')
-
-        # cf_iou_xfx = self.val_iou_xfx.compute().item()
-        # self.val_iou_xfx.reset()
-        # self.logger.info(f'IoU(S, Sfx) = {cf_iou_xfx:.3f} (cf_thresh={self.cf_threshold}, num_samples={pred_num_abnormal_samples}, mask={self.cf_gt_seg_mask_idx})')
 
         fid_score = None
         if not skip_fid:

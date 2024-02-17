@@ -19,31 +19,15 @@ class CounterfactualInpaintingCGAN(CounterfactualCGAN):
         f_x, f_x_discrete, _, _ = super().posterior_prob(x)
         f_x_desired = f_x.clone().detach()
         f_x_desired_discrete = f_x_discrete.clone().detach()
-        # print('clf predicted pos/neg cond', f_x_desired_discrete.sum(), f_x_desired_discrete.shape[0] - f_x_desired_discrete.sum())
         
         # mask of what samples classifier predicted as `abnormal`
         inpaint_group = f_x_discrete.bool()
         # `abnormalities` need to be inpainted and classifier should predict `normal` on them
         f_x_desired[inpaint_group] = 1e-6
         f_x_desired_discrete[inpaint_group] = 0
-        # print('after pos/neg cond', f_x_desired_discrete.sum(), f_x_desired_discrete.shape[0] - f_x_desired_discrete.sum())
         return f_x, f_x_discrete, f_x_desired, f_x_desired_discrete
 
     def reconstruction_loss(self, real_imgs, gen_imgs, masks, f_x_discrete, f_x_desired_discrete, z=None):
-        # # I_f(x, f(x))
-        # ifx_fx = self.explanation_function(real_imgs, f_x_discrete, z=z)
-        # # L_rec(x, I_f(x, f(x)))
-        # forward_term = CARL(real_imgs, ifx_fx, masks)
-
-        # # I_f(I_f(x, c), f(x))
-        # ifxc_fx = self.explanation_function(
-        #     x=gen_imgs,  # I_f(x, c)
-        #     f_x_discrete=f_x_discrete,
-        # )
-        # # L_rec(x, I_f(I_f(x, c), f(x)))
-        # cyclic_term = CARL(real_imgs, ifxc_fx, masks)
-        # return forward_term + cyclic_term
-        
         forward_term = self.minc_loss(real_imgs, gen_imgs)
         
         if not self.opt.get('cyclic_rec', False):
@@ -53,9 +37,12 @@ class CounterfactualInpaintingCGAN(CounterfactualCGAN):
             x=gen_imgs,  # I_f(x, c)
             f_x_discrete=f_x_desired_discrete, # f_x_desired_discrete is always zeros
         )
+        # cyclic rec 1
         # L_rec(x, I_f(I_f(x, c), f(x)))
         cyclic_term = self.minc_loss(real_imgs, ifxc_fx)
-        # return self.minc_loss(real_imgs, gen_imgs)
+
+        # cyclic rec 2
+        # cyclic_term = self.minc_loss(gen_imgs, ifxc_fx)
         return forward_term + cyclic_term
 
     def forward(self, batch, training=False, validation=False, compute_norms=False, global_step=None):
@@ -105,7 +92,10 @@ class CounterfactualInpaintingCGAN(CounterfactualCGAN):
             # f(I_f(x, c)) ≈ c
             gen_f_x, _, _, _ = self.posterior_prob(gen_imgs)
             # both y_pred and y_target are single-value probs for class k
-            g_kl = self.lambda_kl * kl_divergence(gen_f_x, real_f_x_desired)
+            g_kl = (
+                self.lambda_kl * kl_divergence(gen_f_x, real_f_x_desired)
+                if self.lambda_kl != 0 else torch.tensor(0.0, requires_grad=True)
+            )
             # reconstruction loss for generator
             g_rec_loss = (
                 self.lambda_rec * self.reconstruction_loss(real_imgs, gen_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
@@ -125,7 +115,6 @@ class CounterfactualInpaintingCGAN(CounterfactualCGAN):
 
             # update generator
             if update_generator:
-                # g_loss.backward()
                 self.fabric.backward(g_loss)
                 if compute_norms:
                     self.norms['E'] = grad_norm(self.enc)
@@ -159,7 +148,6 @@ class CounterfactualInpaintingCGAN(CounterfactualCGAN):
         d_loss = (d_real_loss + d_fake_loss) / 2
 
         if training:
-            # d_loss.backward()
             self.fabric.backward(d_loss)
             if compute_norms:
                 self.norms['D'] = grad_norm(self.disc)

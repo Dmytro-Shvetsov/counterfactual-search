@@ -21,8 +21,9 @@ from src.visualizations import confmat_vis_img
 logging.basicConfig(level=logging.INFO)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-cp', '--continue_path', type=str, required=True, help='Path to the existing training run to continue interrupted training')
+parser.add_argument('-cp', '--continue_path', type=str, required=True, help='Path to the existing experiment to evaluate CF model')
 parser.add_argument('-t', '--tau', type=float, required=False, default=0.8, help='Theshold for the counterfactual score metric')
+parser.add_argument('-cft', '--cf_threshold', type=float, required=False, default=0.25, help='Theshold to be used for thresholding counterfactual maps into segmentation masks')
 parser.add_argument('-st', '--sal_threshold', type=float, required=False, default=0.975, help='Theshold to be used for thresholding saliency maps into segmentation masks')
 parser.add_argument('-sf', '--skip_fid', action='store_true', default=False, help='Whether to skip FID metric calculation')
 parser.add_argument('-at', '--attributors', nargs='+', required=False, default=[], help='Attribution methods to be additionally evaluated')
@@ -77,16 +78,19 @@ def main(args):
     with open(continue_path.joinpath('hparams.yaml')) as fid:
         opt = yaml.safe_load(fid)
         opt = edict(opt)
+    opt.cf_threshold = args.cf_threshold
     seed_everything(opt.seed)
 
     model: CounterfactualCGAN = build_model(opt.task_name, opt=opt.model, img_size=opt.dataset.img_size)
     trainer: CounterfactualTrainer = build_trainer(opt.task_name, opt, model, args.continue_path)
-    _, test_loader = trainer.get_dataloaders(skip_cf_sampler=True)
-    trainer.evaluate_counterfactual(test_loader, args.tau, args.skip_fid)
+    train_loader, test_loader = trainer.get_dataloaders(skip_cf_sampler=True)
 
     attributors = ATTRIBUTORS.keys() if args.attributors == ['all'] else args.attributors
     if attributors:
         eval_attributors(attributors, trainer, test_loader, args.sal_threshold)
+    else:
+        # trainer.evaluate_counterfactual(train_loader, phase='train', tau=args.tau, skip_fid=args.skip_fid)
+        trainer.evaluate_counterfactual(test_loader, phase='val', tau=args.tau, skip_fid=args.skip_fid)
 
 
 if __name__ == '__main__':

@@ -199,19 +199,16 @@ class CounterfactualCGAN(nn.Module):
             # f(I_f(x, c)) ≈ c
             gen_f_x, _, _, _ = self.posterior_prob(gen_imgs)
             # both y_pred and y_target are single-value probs for class k
-            g_kl = self.lambda_kl * kl_divergence(gen_f_x, real_f_x_desired)
+            g_kl = (
+                self.lambda_kl * kl_divergence(gen_f_x, real_f_x_desired)
+                if self.lambda_kl != 0 else torch.tensor(0.0, requires_grad=True)
+            )
             # reconstruction loss for generator
             g_rec_loss = (
                 self.lambda_rec * self.reconstruction_loss(real_imgs, gen_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
                 if self.lambda_rec != 0 else torch.tensor(0.0, requires_grad=True)
             )
             if self.lambda_minc != 0:
-                # if self.ptb_based:
-                #     # force the model to minimize the perturbations made
-                #     g_minc_loss = self.lambda_minc * gen_imgs.mean()
-                # else:
-                #     # force the model to make the generated images look similar to the inputs
-                #     g_minc_loss = self.lambda_minc * self.minimum_change_loss(real_imgs, gen_imgs)
                 g_minc_loss = self.lambda_minc * self.minimum_change_loss(real_imgs, gen_imgs)
             else:
                 g_minc_loss = torch.tensor(0.0, requires_grad=True)
@@ -220,7 +217,6 @@ class CounterfactualCGAN(nn.Module):
 
             # update generator
             if update_generator:
-                # g_loss.backward()
                 self.fabric.backward(g_loss)
                 if compute_norms:
                     self.norms['E'] = grad_norm(self.enc)
@@ -253,7 +249,6 @@ class CounterfactualCGAN(nn.Module):
         d_loss = (d_real_loss + d_fake_loss) / 2
 
         if training:
-            # d_loss.backward()
             self.fabric.backward(d_loss)
             if compute_norms:
                 self.norms['D'] = grad_norm(self.disc)

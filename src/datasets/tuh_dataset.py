@@ -10,9 +10,9 @@ from src.datasets.tsm_scan import CTScan as _CTScan
 class CTScan(_CTScan):
     def __getitem__(self, index):
         s = super().__getitem__(index)
-        s['image'] = s['image'].transpose(2, 1).flip((1, 2))
-        if s['masks'].shape[0] != 0:
-            s['masks'] = s['masks'].transpose(2, 1).flip((1, 2))
+        # s['image'] = s['image'].transpose(2, 1).flip((1, 2))
+        # if s['masks'].shape[0] != 0:
+        #     s['masks'] = s['masks'].transpose(2, 1).flip((1, 2))
         return s
         
 
