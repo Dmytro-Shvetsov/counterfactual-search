@@ -10,8 +10,9 @@ The main dataset used for experiments is [COVID-19 Radiography Database](https:/
 
 ## Setting up the project
 ```
-pip install -r requirements.freeze.txt --extra-index-url https://download.pytorch.org/whl/cu117
+pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu117
 pip install -e .
+pre-commit install
 ```
 
 ## Training the counterfactual cGAN

@@ -1,0 +1,55 @@
+task_name: classification
+
+seed: 777
+sample_interval: 30
+
+n_epochs: 30
+epoch_steps: 100
+
+logging_dir: ./training_logs/classification_ctnorm
+experiment_name: tsm_synth-large_ctnorm_r18_aug
+checkpoint_freq: 2
+
+dataset:
+  kind: totalsegmentor
+  root_dir: ./data/totalsegmentor # 1804 * 64 slices in totalsegmentor dataset
+  batch_size: 128
+  img_size: [256, 256] # hxw
+  use_sampler: False
+  reset_sampler: False
+  num_workers: 28
+  imagenet_norm: False # mean=[0.5], std=[0.5]
+  augs: [hflip, vflip, shift_scale_rotate] # only resize and norm
+
+  # limit_scans: 2
+
+  scan_params:
+    slicing_direction: axial
+    classes: ['empty', 'kidney']
+    sampling_class: ['kidney']
+    filter_class_slices: ['kidney']
+    filter_class_slices_thresh: 32
+
+    synth_params:
+      p: 0.65
+      size: 20
+      sigma: 0.4
+      mask_thresh: 0.25
+
+    norm_scheme: &norm
+      kind: minmax
+
+model:
+  # kind: convnext_base # resnet18
+  kind: resnet18
+  n_classes: 1
+  pretrained: True
+  restore_ckpt: null
+  in_channels: 1
+
+  loss: bce
+
+  # optimizer's parameters
+  lr: 0.001
+  b1: 0.9
+  b2: 0.999

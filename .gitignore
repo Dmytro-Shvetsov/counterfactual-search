@@ -194,3 +194,4 @@ training_logs/
 saved_models/
 *.7z
 *.out
+data

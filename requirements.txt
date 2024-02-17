@@ -1,10 +1,33 @@
-matplotlib
-albumentations
-opencv-python
-pytorch_toolbelt
+torch==2.0.0+cu117
+torchsampler @ git+https://github.com/ufoym/imbalanced-dataset-sampler.git@01cb129677348824a20905baea112d501e3bf642
+torchvision==0.15.1+cu117
+torchmetrics==1.1.2
+segmentation_models_pytorch==0.3.3
+pytorch-toolbelt==0.6.2
+torch-fidelity==0.3.0
+
+# reading 3D scans
+nibabel==5.1.0
+
+matplotlib==3.7.1
+albumentations==1.3.0
+opencv-python==4.7.0.72
 jupyter
-pandas
-PyYaml
-easydict
-tensorboard
-tqdm
+notebook==6.5.4
+traitlets<5.10
+pandas==2.0.1
+PyYaml==6.0
+easydict==1.10
+tensorboard==2.13.0
+tqdm==4.65.0
+memory_profiler
+
+# code formatting & linting
+black==23.3.0
+pre-commit==3.3.3
+pre-commit-hooks==4.4.0
+ffmpeg-python==0.2.0
+flake8_bugbear==23.6.5
+flake8_comprehensions==3.13.0
+flake8_simplify==0.20.0
+isort==5.12.0

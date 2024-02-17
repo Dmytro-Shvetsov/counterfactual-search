@@ -1,12 +1,11 @@
-from collections import OrderedDict
 import datetime
 import logging
-
-from pathlib import Path
 import time
+from collections import OrderedDict
+from pathlib import Path
+
 import torch
 from torch.nn import functional as F
-
 from torch.utils.tensorboard import SummaryWriter
 
 from src.utils.generic_utils import setup_logger
@@ -15,6 +14,7 @@ from src.utils.generic_utils import setup_logger
 class Logger:
     def __init__(self, log_dir):
         self.log_dir = Path(log_dir)
+        self.log_dir.mkdir(exist_ok=True)
         self.writer = SummaryWriter(log_dir)
         self.logger = setup_logger(__name__, self.log_dir / 'logs.log')
         self.logger.info(f"================ Session ({time.strftime('%c')}) ================")
