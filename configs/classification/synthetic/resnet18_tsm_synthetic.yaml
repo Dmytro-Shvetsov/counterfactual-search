@@ -7,29 +7,41 @@ n_epochs: 1000
 epoch_steps: 100
 
 logging_dir: ./training_logs/classification
-experiment_name: tsm_synth_r18
+# experiment_name: tsm_synth-large_ctnorm_r18_nnunet-aug
+experiment_name: tsm_synth-large_ctnorm_r18_fixaug
 checkpoint_freq: 5
 
 dataset:
   kind: totalsegmentor
-  root_dir: /tmp/totalsegmentor # 1804 * 64 slices in totalsegmentor dataset
+  root_dir: ./data/totalsegmentor # 1804 * 64 slices in totalsegmentor dataset
   batch_size: 128
   img_size: [256, 256] # hxw
-  use_sampler: True
+  use_sampler: False
   reset_sampler: False
-  num_workers: 16
+  num_workers: 28
   imagenet_norm: False # mean=[0.5], std=[0.5]
-  augs: [] # only resize and norm
+  augs: [hflip, vflip, shift_scale_rotate] # only resize and norm
+  # augs: nnunet
+
+  # limit_scans: 2
 
   scan_params:
-    min_max_normalization: True
     slicing_direction: axial
     classes: ['empty', 'kidney']
     sampling_class: ['kidney']
+    filter_class_slices: ['kidney']
+    filter_class_slices_thresh: 32
+
     synth_params:
-      p: 0.8
-      size: 8
-      sigma: 0.5
+      p: 0.65
+      size: 20
+      sigma: 0.4
+      mask_thresh: 0.25
+    
+    norm_scheme: &norm
+      kind: ct
+      rescale: True
+      fingerprint_path: data/totalsegmentor/dataset_fingerprint.json
 
 model:
   kind: resnet18

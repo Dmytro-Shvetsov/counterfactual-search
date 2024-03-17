@@ -10,6 +10,8 @@ class ScoreCAM(BaseAttributor):
         
         if classifier_kind.startswith('resnet'):
             self.model_dict = dict(type='resnet', arch=classifier, layer_name='layer4', input_size=self.img_size)
+        elif classifier_kind.startswith('efficientnet_v2'):
+            self.model_dict = dict(type='efficientnet_v2', arch=classifier, layer_name='features_7', input_size=self.img_size)
         else:
             raise NotImplementedError()
         

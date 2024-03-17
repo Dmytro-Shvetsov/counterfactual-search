@@ -1,3 +1,4 @@
+import logging
 import random
 from itertools import chain
 from pathlib import Path
@@ -59,6 +60,7 @@ class MergedDataset(torch.utils.data.Dataset):
 
 
 def seed_worker(worker_id):
+    logging.info(f'initial seed {torch.initial_seed()}')
     worker_seed = torch.initial_seed() % 2**32
     seed_everything(worker_seed)
 

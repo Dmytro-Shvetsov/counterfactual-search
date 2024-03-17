@@ -4,7 +4,7 @@ Part of code borrows from https://github.com/1Konny/gradcam_plus_plus-pytorch
 
 import torch
 from .utils import find_alexnet_layer, find_vgg_layer, find_resnet_layer, find_densenet_layer, \
-    find_squeezenet_layer, find_layer, find_googlenet_layer, find_mobilenet_layer, find_shufflenet_layer
+    find_squeezenet_layer, find_layer, find_googlenet_layer, find_mobilenet_layer, find_shufflenet_layer, find_efficientnet_v2_layer
 
 class BaseCAM(object):
     """ Base class for Class activation mapping.
@@ -56,6 +56,8 @@ class BaseCAM(object):
             self.target_layer = find_shufflenet_layer(self.model_arch, layer_name)
         elif 'mobilenet' in model_type.lower():
             self.target_layer = find_mobilenet_layer(self.model_arch, layer_name)
+        elif 'efficientnet_v2' in model_type.lower():
+            self.target_layer = find_efficientnet_v2_layer(self.model_arch, layer_name)
         else:
             self.target_layer = find_layer(self.model_arch, layer_name)
 

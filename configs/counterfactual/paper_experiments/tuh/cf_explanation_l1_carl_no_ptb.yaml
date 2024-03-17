@@ -1,0 +1,99 @@
+task_name: counterfactual_inpainting
+logging_dir: ./training_logs/counterfactual_ptb_skipconn_ctnorm_tumors_tuh_reproduce
+
+seed: 777
+sample_interval: 50
+
+n_epochs: 100
+# epoch_steps: 800
+
+experiment_name: tuh_effv2_bs16_bilinear_sc-1234_df-fuse_explanation_tm-thresh-1000_adv1_kl1_rec1_tv00005_b10_disk-5ds_l1_rec_no_ptb
+checkpoint_freq: 1
+eval_counter_freq: 1
+cf_gt_seg_mask_idx: 2
+log_visualizations: false
+
+compute_norms: False
+
+dataset:
+  kind: merged
+  batch_size: 16
+  img_size: [256, 256] # hxw
+  use_sampler: True
+  reset_sampler: True
+  num_workers: 28
+  imagenet_norm: False # mean=[0.5], std=[0.5]
+  root_dir: null
+  augs: [] # only resize and norm
+
+  datasets:
+    - kind: tuh
+      root_dir: data/tuh_dataset_full
+      split_dir: splits/limit_area_10/skf_tumor_area_split0
+
+      # TUH_LABEL_NAMES = {
+      #     1: "kidney",
+      #     2: "tumor",
+      #     3: "cyst"
+      # }
+      scan_params:
+        load_masks: True
+        norm_scheme: &norm
+          kind: ct
+          rescale: True
+          fingerprint_path: ./data/tuh_dataset_full/dataset_fingerprint_fg_tumor.json
+        slicing_direction: axial
+        classes: ['empty', 'kidney', 'tumor', 'cyst']
+        
+        sampling_class: ['tumor']
+        classify_labels: ['tumor']
+        classify_labels_thresh: 1000
+
+        # fetch only kidney slices in loaders that have masks with at least `filter_class_slices_thresh` non zero pixels
+        filter_class_slices: ['kidney']
+        filter_class_slices_thresh: 100
+
+model:
+  kind: counterfactual_lungs_cgan
+  ptb_based: False # perturbation based generator
+  in_channels: 1
+  gen_update_freq: 5
+  adv_loss: mse
+  lambda_adv: 1.0
+  lambda_kl: 1.0
+  lambda_rec: 1.0
+  rec_kind: L1
+  # precision: 16-mixed
+  precision: '32'
+  # optimizers' parameters
+  lr: 0.0002
+  b1: 0.0
+  b2: 0.999
+  
+  # default setting
+  # encoder returns features [block_1(x), block_2(block_1(x)), ..., block_N(...)]
+  enc_params:
+    downsample_scales: [2, 2, 2, 2, 2]
+    out_channels: [64, 128, 256, 512, 1024]
+    use_snconv: false
+
+  gen_params:
+    upsample_scales: [2, 2, 2, 2, 2]
+    out_channels: [1024, 512, 256, 128, 64]
+    upsample_kind: bilinear
+    use_snconv: false
+    # indices are specifided w.r.t bottleneck (index=0) and upwards
+    skip_conn: [1, 2, 3, 4]
+
+  disc_params:
+    downsample_scales: [2, 2, 2, 2, 2]
+    out_channels: [64, 128, 256, 512, 1024]
+
+  # counterfactual parameters
+  num_bins: 2 # number of discrete bins into which posterior probabilities are sorted
+  explain_class_idx: 0 # normal/not-normal kidneys
+
+  # classifier parameters
+  classifier_kind: efficientnet_v2_s
+  n_classes: 1 # number of classes in the classifier
+  classifier_ckpt: training_logs/classification/tuh-full-ctnorm/efficientnet_v2_s-January-20-2024_06+06PM-7f1ce03-tuh_effv2s_aug_tm-area-split_tm-thresh-1000_lr2_figaug_fgtumor/checkpoints/checkpoint_30.pth

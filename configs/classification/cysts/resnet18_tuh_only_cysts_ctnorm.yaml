@@ -1,0 +1,65 @@
+task_name: classification
+
+seed: 777
+sample_interval: 30
+
+n_epochs: 1000
+epoch_steps: 50
+
+logging_dir: ./training_logs/classification/tuh-full-ctnorm
+experiment_name: tuh_effv2_cyst-area-split_cyst-thresh-600_fgall
+checkpoint_freq: 10
+
+dataset:
+  kind: merged
+  batch_size: 256
+  img_size: [256, 256] # hxw
+  use_sampler: True
+  reset_sampler: True
+  num_workers: 28
+  imagenet_norm: False # mean=[0.5], std=[0.5]
+  root_dir: null
+  augs: [hflip, vflip, shift_scale_rotate] # only resize and norm
+
+  datasets:
+    - kind: tuh
+      root_dir: data/tuh_dataset_full
+      split_dir: splits/limit_area_10/skf_tumor_area_split0
+
+      # TUH_LABEL_NAMES = {
+      #     1: "kidney",
+      #     2: "tumor",
+      #     3: "cyst"
+      # }
+      scan_params:
+        # load_masks: True
+        norm_scheme: &norm
+          kind: ct
+          rescale: True
+          fingerprint_path: ./data/tuh_dataset_full/dataset_fingerprint.json
+        slicing_direction: axial
+        classes: ['empty', 'kidney', 'tumor', 'cyst']
+        
+        sampling_class: ['cyst']
+        classify_labels: ['cyst']
+        classify_labels_thresh: 600
+
+        # fetch only kidney slices in loaders that have masks with at least `filter_class_slices_thresh` non zero pixels
+        filter_class_slices: ['kidney']
+        filter_class_slices_thresh: 100
+
+model:
+  kind: efficientnet_v2_s
+  # kind: resnet18
+  n_classes: 1
+  pretrained: True
+  # restore_ckpt: training_logs/classification/resnet18-October-21-2023_02+35PM-af13228-tsm_synth_r18_kdn-only/checkpoints/checkpoint_50.pth
+  in_channels: 1
+
+  loss: bce
+
+  # optimizer's parameters
+  lr: 0.0003
+  b1: 0.9
+  b2: 0.999
+  weight_decay: 0.0001

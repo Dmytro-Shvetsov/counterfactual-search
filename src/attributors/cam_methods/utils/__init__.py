@@ -597,3 +597,27 @@ def find_layer(arch, target_layer_name):
         raise Exception("Invalid target layer name.")
     target_layer = arch._modules[target_layer_name]
     return target_layer
+
+
+def find_efficientnet_v2_layer(arch, target_layer_name):
+    """Find EfficientNet-V2 layer to calculate GradCAM and GradCAM++
+
+    Args:
+        arch: default torchvision densenet models
+        target_layer_name (str): the name of layer with its hierarchical information. please refer to usages below.
+            target_layer_name = 'features'
+            target_layer_name = 'features_<0,1,2,...,7>'
+    Return:
+        target_layer: found layer. this layer will be hooked to get forward/backward pass information.
+    """
+    if target_layer_name is None:
+        target_layer_name = 'features'
+
+    hierarchy = target_layer_name.split('_')
+
+    if len(hierarchy) >= 1:
+        target_layer = arch.features
+
+    if len(hierarchy) == 2:
+        target_layer = target_layer[int(hierarchy[1])]
+    return target_layer
