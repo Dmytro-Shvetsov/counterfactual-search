@@ -53,7 +53,7 @@ model:
   lambda_kl: 5.0
   lambda_rec: 1.0
   lambda_tv: 0.0
-  lambda_minc: 0.0
+  
   # precision: 16-mixed
   precision: '32'
 

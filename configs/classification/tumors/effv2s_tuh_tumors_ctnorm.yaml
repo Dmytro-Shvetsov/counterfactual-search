@@ -6,8 +6,8 @@ sample_interval: 30
 n_epochs: 1000
 epoch_steps: 50
 
-logging_dir: ./training_logs/classification/tumors-kits-tsm-sametranspose
-experiment_name: kits-tsm_effv2s_aug_tm-area-split
+logging_dir: ./training_logs/classification/tuh-full-ctnorm
+experiment_name: tuh_effv2s_aug_tm-area-split_tm-thresh-1000_lr2_figaug_fgtumor
 checkpoint_freq: 10
 
 dataset:
@@ -22,44 +22,27 @@ dataset:
   augs: [hflip, vflip, shift_scale_rotate] # only resize and norm
 
   datasets:
-    - kind: totalsegmentor
-      root_dir: ./data/totalsegmentor-v1-controls
-      labels_dir: nnUNet_predictions
-      
-      scan_params:
-        # load_masks: True
-        min_max_normalization: True
-        slicing_direction: axial
-        classes: ['empty', 'kidney']
+    - kind: tuh
+      root_dir: data/tuh_dataset_full
+      split_dir: splits/limit_area_10/skf_tumor_area_split0
 
-        # fetch only kidney slices in loaders that have masks with at least `filter_class_slices_thresh` non zero pixels
-        filter_class_slices: ['kidney']
-        filter_class_slices_thresh: 100
-
-        default_label: 0
-
-    - kind: kits
-      root_dir: data/kits23
-      split_dir: splits/skf_tumor_area_split0
-
-      # LABEL_AGGREGATION_ORDER = (1, 3, 2)
-      # this means that we first place the kidney, then the cyst and finally the
-      # tumor. The order matters! If parts of a later label (example tumor) overlap
-      # with a prior label (kidney or cyst) the prior label is overwritten
-      # KITS_LABEL_NAMES = {
+      # TUH_LABEL_NAMES = {
       #     1: "kidney",
       #     2: "tumor",
       #     3: "cyst"
       # }
       scan_params:
         # load_masks: True
-        min_max_normalization: True
+        norm_scheme: &norm
+          kind: ct
+          rescale: True
+          fingerprint_path: ./data/tuh_dataset_full/dataset_fingerprint_fg_tumor.json
         slicing_direction: axial
         classes: ['empty', 'kidney', 'tumor', 'cyst']
         
         sampling_class: ['tumor']
         classify_labels: ['tumor']
-        classify_labels_thresh: 32
+        classify_labels_thresh: 1000
 
         # fetch only kidney slices in loaders that have masks with at least `filter_class_slices_thresh` non zero pixels
         filter_class_slices: ['kidney']
@@ -67,6 +50,7 @@ dataset:
 
 model:
   kind: efficientnet_v2_s
+  # kind: resnet18
   n_classes: 1
   pretrained: True
   # restore_ckpt: training_logs/classification/resnet18-October-21-2023_02+35PM-af13228-tsm_synth_r18_kdn-only/checkpoints/checkpoint_50.pth
@@ -75,7 +59,7 @@ model:
   loss: bce
 
   # optimizer's parameters
-  lr: 0.001
+  lr: 0.0003
   b1: 0.9
   b2: 0.999
   weight_decay: 0.0001

@@ -10,11 +10,11 @@ from src.datasets.tsm_scan import CTScan as _CTScan
 class CTScan(_CTScan):
     def __getitem__(self, index):
         s = super().__getitem__(index)
-        # s['image'] = s['image'].transpose(2, 1).flip((1, 2))
-        # if s['masks'].shape[0] != 0:
-        #     s['masks'] = s['masks'].transpose(2, 1).flip((1, 2))
+        s['image'] = s['image'].transpose(2, 1).flip((1, 2))
+        if s['masks'].shape[0] != 0:
+            s['masks'] = s['masks'].transpose(2, 1).flip((1, 2))
         return s
-        
+
 
 class TUHDataset(torch.utils.data.Dataset):
     def __init__(self, root_dir:str, split:str, split_dir:str='splits', limit_scans:int = 99999, **scan_params):

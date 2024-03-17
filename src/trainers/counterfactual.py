@@ -126,7 +126,7 @@ class CounterfactualTrainer(BaseTrainer):
         return epoch_stats
 
     @torch.no_grad()
-    def evaluate_counterfactual(self, loader, phase='val', tau=0.8, skip_fid=False):
+    def evaluate_counterfactual(self, loader, phase='val', tau=0.8, skip_fid=False, postprocess_morph=False):
         self.model.eval()
 
         cf_dir = self.cf_vis_dir_train if phase == 'train' else self.cf_vis_dir_val

@@ -1,3 +1,4 @@
+from functools import partial
 import itertools
 
 import lightning as L
@@ -59,7 +60,8 @@ class CounterfactualCGAN(nn.Module):
         # Loss functions
         self.adv_loss = opt.get('adv_loss', 'mse')
         self.adversarial_loss = torch.nn.BCEWithLogitsLoss() if self.adv_loss else torch.nn.MSELoss()
-        self.minc_loss = torch.nn.L1Loss()
+        self.l1 = torch.nn.L1Loss()
+        self.rec_kind = opt.get('rec_kind', 'carl')
         self.lambda_adv = opt.get('lambda_adv', 1.0)
         self.lambda_kl = opt.get('lambda_kl', 1.0)
         self.lambda_rec = opt.get('lambda_rec', 1.0)
@@ -137,10 +139,11 @@ class CounterfactualCGAN(nn.Module):
         f_x_discrete - bin index for posterior probability f(x)
         f_x_desired_discrete - bin index for posterior probability 1 - f(x) (also known as desired probability)
         """
+        rec_fn = partial(CARL, masks=masks) if self.rec_kind.lower() == 'carl' else self.l1 
         # I_f(x, f(x))
         ifx_fx = self.explanation_function(real_imgs, f_x_discrete, z=z)
         # L_rec(x, I_f(x, f(x)))
-        forward_term = CARL(real_imgs, ifx_fx, masks)
+        forward_term = rec_fn(real_imgs, ifx_fx)
 
         # I_f(I_f(x, c), f(x))
         ifxc_fx = self.explanation_function(
@@ -148,11 +151,8 @@ class CounterfactualCGAN(nn.Module):
             f_x_discrete=f_x_discrete,
         )
         # L_rec(x, I_f(I_f(x, c), f(x)))
-        cyclic_term = CARL(real_imgs, ifxc_fx, masks)
+        cyclic_term = rec_fn(real_imgs, ifxc_fx)
         return forward_term + cyclic_term
-
-    def minimum_change_loss(self, x, x_prime):
-        return self.minc_loss(x, x_prime)
 
     def forward(self, batch, training=False, validation=False, compute_norms=False, global_step=None):
         assert training and not validation or validation and not training
@@ -208,12 +208,8 @@ class CounterfactualCGAN(nn.Module):
                 self.lambda_rec * self.reconstruction_loss(real_imgs, gen_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
                 if self.lambda_rec != 0 else torch.tensor(0.0, requires_grad=True)
             )
-            if self.lambda_minc != 0:
-                g_minc_loss = self.lambda_minc * self.minimum_change_loss(real_imgs, gen_imgs)
-            else:
-                g_minc_loss = torch.tensor(0.0, requires_grad=True)
             # total generator loss
-            g_loss = g_adv_loss + g_kl + g_rec_loss + g_minc_loss
+            g_loss = g_adv_loss + g_kl + g_rec_loss
 
             # update generator
             if update_generator:
@@ -226,7 +222,6 @@ class CounterfactualCGAN(nn.Module):
             self.gen_loss_logs['g_adv'] = g_adv_loss.item()
             self.gen_loss_logs['g_kl'] = g_kl.item()
             self.gen_loss_logs['g_rec_loss'] = g_rec_loss.item()
-            self.gen_loss_logs['g_minc_loss'] = g_minc_loss.item()
             self.gen_loss_logs['g_loss'] = g_loss.item()
 
         # ---------------------
@@ -263,3 +258,9 @@ class CounterfactualCGAN(nn.Module):
             'gen_imgs': gen_imgs,
         }
         return outs
+
+    def generate_counterfactual(self, real_imgs:torch.Tensor) -> torch.Tensor:
+        real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = self.posterior_prob(real_imgs)
+        gen_cf_c = self.explanation_function(real_imgs, real_f_x_desired_discrete)
+        diff = (real_imgs - gen_cf_c).abs()
+        return real_f_x_discrete, real_f_x_desired_discrete, gen_cf_c, diff

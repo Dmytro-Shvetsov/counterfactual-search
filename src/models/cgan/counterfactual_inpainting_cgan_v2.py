@@ -9,7 +9,7 @@ FloatTensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Flo
 LongTensor = torch.cuda.LongTensor if torch.cuda.is_available() else torch.LongTensor
 
 
-class CounterfactualInpaintingCGAN(CounterfactualCGAN):
+class CounterfactualInpaintingCGANV2(CounterfactualCGAN):
     
     def __init__(self, img_size, opt, *args, **kwargs) -> None:
         super().__init__(img_size, opt, *args, **kwargs)
@@ -39,10 +39,10 @@ class CounterfactualInpaintingCGAN(CounterfactualCGAN):
         )
         # cyclic rec 1
         # L_rec(x, I_f(I_f(x, c), f(x)))
-        cyclic_term = self.l1(real_imgs, ifxc_fx)
+        # cyclic_term = self.l1(real_imgs, ifxc_fx)
 
         # cyclic rec 2
-        # cyclic_term = self.l1(gen_imgs, ifxc_fx)
+        cyclic_term = self.l1(gen_imgs, ifxc_fx)
         return forward_term + cyclic_term
 
     def forward(self, batch, training=False, validation=False, compute_norms=False, global_step=None):
@@ -63,8 +63,8 @@ class CounterfactualInpaintingCGAN(CounterfactualCGAN):
         # Classifier predictions and desired outputs for the explanation function
         with torch.no_grad():
             # technically condition `c` (real_f_x_desired) is now classifier driven choice to:
-            # 1) `inpaint`  (real_f_x_desired == 1)
-            # 2) `identity` (real_f_x_desired == 0)
+            # 1) `inpaint`  (real_f_x_discrete == 1)
+            # 2) `identity` (real_f_x_discrete == 0)
             real_f_x, real_f_x_discrete, real_f_x_desired, real_f_x_desired_discrete = self.posterior_prob(real_imgs)
 
         # -----------------
@@ -75,13 +75,16 @@ class CounterfactualInpaintingCGAN(CounterfactualCGAN):
 
         # E(x)
         z = self.enc(real_imgs)
-        # G(z, c) = I_f(x, c)
-        gen_imgs = self.gen(z, real_f_x_desired_discrete, x=real_imgs if self.ptb_based else None)
+        # G(z, c) = I_f(x, f(x))
+        gen_imgs = self.gen(z, real_f_x_discrete, x=real_imgs if self.ptb_based else None)
 
         update_generator = global_step is not None and global_step % self.gen_update_freq == 0
         
         if update_generator or validation:
             # data consistency loss for generator
+            # discriminator is guided by the flipped prediction of the classifier on generated images
+            # TODO: try passing f(x)
+            # TODO: try passing f(x_cf)
             dis_fake = self.disc(gen_imgs, real_f_x_desired_discrete)
             if self.adv_loss == 'hinge':
                 g_adv_loss = self.lambda_adv * loss_hinge_gen(dis_fake)
@@ -101,17 +104,13 @@ class CounterfactualInpaintingCGAN(CounterfactualCGAN):
                 self.lambda_rec * self.reconstruction_loss(real_imgs, gen_imgs, masks, real_f_x_discrete, real_f_x_desired_discrete, z=z)
                 if self.lambda_rec != 0 else torch.tensor(0.0, requires_grad=True)
             )
-            if self.lambda_minc != 0:
-                g_minc_loss = self.lambda_minc * self.l1(real_imgs, gen_imgs)
-            else:
-                g_minc_loss = torch.tensor(0.0, requires_grad=True)
-            
+
             if self.lambda_tv != 0:
                 g_tv = self.lambda_tv * tv_loss(torch.abs(real_imgs.add(1).div(2) - gen_imgs.add(1).div(2)).mul(255))
             else:
                 g_tv = torch.tensor(0.0, requires_grad=True)
             # total generator loss
-            g_loss = g_adv_loss + g_kl + g_rec_loss + g_minc_loss + g_tv
+            g_loss = g_adv_loss + g_kl + g_rec_loss + g_tv
 
             # update generator
             if update_generator:
@@ -124,7 +123,6 @@ class CounterfactualInpaintingCGAN(CounterfactualCGAN):
             self.gen_loss_logs['g_adv'] = g_adv_loss.item()
             self.gen_loss_logs['g_kl'] = g_kl.item()
             self.gen_loss_logs['g_rec_loss'] = g_rec_loss.item()
-            self.gen_loss_logs['g_minc_loss'] = g_minc_loss.item()
             self.gen_loss_logs['g_tv'] = g_tv.item()
             self.gen_loss_logs['g_loss'] = g_loss.item()
 
