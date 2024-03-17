@@ -1,11 +1,11 @@
 # <img src='demo/logo.png' height=25/> COIN: Counterfactual inpainting for weakly supervised semantic segmentation for medical images
-<h5 align="center">
-[![arXiv](https://img.shields.io/badge/Arxiv-2403.09394-b31b1b.svg?logo=arXiv)](https://arxiv.org/coming-soon)
-<!-- [![License](https://img.shields.io/badge/License-Apache%202.0-yellow)](https://github.com/Haiyang-W/GiT/blob/main/LICENSE)  -->
+
+<!-- [![arXiv](https://img.shields.io/badge/soon.svg?logo=arXiv)](https://arxiv.org/coming-soon) -->
+<!-- [![License](https://img.shields.io/badge/License-Apache%202.0-yellow)](https://github.com/LICENSE)  -->
 [![Hits](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FDmytro-Shvetsov%2Fcounterfactual-search&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=hits&edge_flat=false)](https://hits.seeyoufarm.com)
 [![GitHub issues](https://img.shields.io/github/issues/Dmytro-Shvetsov/counterfactual-search/GiT?color=critical&label=Issues)](https://github.com/Dmytro-Shvetsov/counterfactual-search/issues?q=is%3Aopen+is%3Aissue+)
 [![GitHub closed issues](https://img.shields.io/github/issues-closed/Dmytro-Shvetsov/counterfactual-search/GiT?color=success&label=Issues)](https://github.com/Dmytro-Shvetsov/counterfactual-search/issues?q=is%3Aissue+is%3Aclosed+)  <br>
-</h5>
+
 
 This repo is the official implementation of the paper: [COIN: Counterfactual inpainting for weakly supervised semantic segmentation for medical images](https://arxiv.org/coming-soon).
 
