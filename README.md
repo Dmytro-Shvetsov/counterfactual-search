@@ -10,30 +10,24 @@
 This repo is the official implementation of the paper: [COIN: Counterfactual inpainting for weakly supervised semantic segmentation for medical images](https://arxiv.org/coming-soon).
 
 ## 🤔 Introduction
-Deep learning is dramatically transforming the field of med-
-ical imaging and radiology, enabling the identification of pathologies in
-medical images, including CT and X-ray scans. However, the perfor-
-mance of deep learning models, particularly in segmentation tasks, is
+Deep learning is dramatically transforming the field of medical imaging and radiology, enabling the identification of pathologies in
+medical images, including CT and X-ray scans. However, the performance of deep learning models, particularly in segmentation tasks, is
 often limited by the need for extensive annotated datasets. To address
-this challenge, we explore the capabilities of weakly supervised seman-
-tic segmentation (WSSS) through the lens of Explainable AI (XAI) and
+this challenge, we explore the capabilities of weakly supervised semantic segmentation (WSSS) through the lens of Explainable AI (XAI) and
 the generation of counterfactual explanations. Our novel counterfactual
 inpainting approach (COIN) flips the predicted classification label from
 abnormal to normal by using a generative model. For instance, if the
 classifier deems an input medical image X as abnormal, indicating the
-presence of a pathology, our generative model aims to inpaint the abnor-
-mal region, thus reversing the classifier’s original prediction label. The
+presence of a pathology, our generative model aims to inpaint the abnormal region, thus reversing the classifier’s original prediction label. The
 approach enables us to produce precise segmentations for pathologies
 without depending on pre-existing segmentation masks. Crucially, we
 utilize image-level labels, which are substantially easier to acquire than
 creating detailed segmentation masks. We demonstrate the effectiveness
 of our method by segmenting synthetic targets and actual kidney tumors
 from CT images acquired from Tartu University Hospital in Estonia.
-Our findings indicate that COIN greatly surpasses established attribu-
-tion methods, such as RISE, ScoreCAM, and LayerCAM, as well as an
+Our findings indicate that COIN greatly surpasses established attribution methods, such as RISE, ScoreCAM, and LayerCAM, as well as an
 alternative counterfactual explanation method introduced by Singla et
-al. This evidence suggests that COIN is a promising approach for seman-
-tic segmentation of tumors in CT images, and presents a step forward
+al. This evidence suggests that COIN is a promising approach for semantic segmentation of tumors in CT images, and presents a step forward
 in making deep learning applications more accessible and effective in
 healthcare, where annotated data is scarce.
 
